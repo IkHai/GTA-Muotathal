@@ -1,62 +1,49 @@
-# Muotathal – Open-World-Handyspiel
+# Muotathal 1
 
 Ein eigenes Open-World-Spiel, das im Muotathal (Kanton Schwyz) spielt.
-Grafik im kantigen Low-Poly-Stil der frühen 2000er. Gebaut mit **Unity 6**, zuerst für **Android**.
+Kantige Low-Poly-Grafik im Stil der frühen 2000er. Läuft direkt im **Handy-Browser**,
+ohne App-Installation und ohne PC.
 
-## Was schon drin ist
+## Spielen
 
-- **Touch-Steuerung:** Joystick links (laufen / lenken), rechts wischen (Kamera drehen),
-  Knöpfe für **Springen**, **Einsteigen/Aussteigen**, **Gas** und **Bremse**.
-- **Spielfigur** mit Gehen, Rennen (Joystick ganz drücken) und Springen.
-- **Auto** zum Einsteigen und Herumfahren.
-- **Testszene** `Assets/Scenes/Muotathal_Test.unity`: ein Platzhalter-Tal mit Strasse,
-  Fluss, Dorf mit Kirche, Tannen und Bergen.
-- Feste **30 FPS** und eine FPS-Anzeige oben links.
+Sobald GitHub Pages eingeschaltet ist (siehe unten), läuft das Spiel hier:
 
-Die Testszene wird beim ersten Öffnen des Projekts **automatisch gebaut**.
-Über das Menü **Muotathal → Testszene neu bauen** kannst du sie jederzeit neu erzeugen.
+**https://ikhai.github.io/GTA-Muotathal/**
 
-## Projekt öffnen
+Handy quer halten, Link öffnen, auf den Bildschirm tippen.
 
-1. **Unity Hub** installieren: https://unity.com/download
-2. Im Hub unter **Installs → Install Editor** eine **Unity 6** Version (6000.0 LTS oder neuer) installieren.
-   Dabei das Modul **Android Build Support** mit **OpenJDK** und **Android SDK & NDK Tools** anhaken.
-3. Dieses Repository herunterladen (GitHub: **Code → Download ZIP** und entpacken, oder mit GitHub Desktop klonen).
-4. Im Hub **Projects → Add → Add project from disk** und den Ordner wählen.
-5. Projekt öffnen. Beim ersten Mal dauert das einige Minuten.
-   - Fragt Unity nach einer anderen Editor-Version: deine installierte Unity-6-Version wählen.
-   - Fragt Unity, ob das **neue Input System** aktiviert werden soll: **Yes** klicken (Unity startet neu).
-6. Die Szene `Assets/Scenes/Muotathal_Test` öffnet sich. Oben auf **Play ▶** drücken.
+| Steuerung | Handy | PC |
+|---|---|---|
+| Laufen / Lenken | Joystick links | WASD oder Pfeiltasten |
+| Kamera drehen | rechts wischen | Maus rechts ziehen |
+| Springen | Knopf „Springen“ | Leertaste |
+| Ein-/Aussteigen | Knopf „Einsteigen“ | E |
+| Gas / Bremse | Knöpfe im Auto | W / S |
 
-**Im Editor testen:** WASD = laufen, Leertaste = springen, E = ein-/aussteigen,
-im Auto W = Gas, S = Bremse/Rückwärts, rechte Maustaste halten = Kamera drehen.
-Die Bildschirm-Knöpfe kann man auch mit der Maus anklicken.
+Joystick wenig drücken = gehen, ganz drücken = rennen.
 
-## Auf dem Android-Handy testen
+## GitHub Pages einschalten (einmalig, geht am Handy)
 
-1. Auf dem Handy **Entwickleroptionen** einschalten: *Einstellungen → Über das Telefon →*
-   7-mal auf **Build-Nummer** tippen.
-2. In den Entwickleroptionen **USB-Debugging** einschalten.
-3. Handy per USB-Kabel an den PC anschliessen und auf dem Handy **USB-Debugging zulassen** bestätigen.
-4. In Unity **File → Build Profiles** öffnen, **Android** wählen und **Switch Platform** klicken.
-5. Bei **Run Device** dein Handy auswählen (sonst **Refresh** klicken).
-6. **Build and Run** klicken und einen Ordner für die Datei wählen (z.B. einen neuen Ordner `Builds`).
-   Das Spiel wird gebaut, aufs Handy kopiert und startet von selbst.
+1. Im Browser das Repository öffnen und auf **Settings** tippen
+   (in der Handy-Ansicht evtl. über **„…“** oder **Desktop-Ansicht**).
+2. Links auf **Pages** tippen.
+3. Bei **Source** „Deploy from a branch“ wählen, bei **Branch** `main` und `/ (root)` wählen, **Save**.
+4. Nach 1–2 Minuten ist das Spiel unter dem Link oben erreichbar.
 
-## Ordnerstruktur
+Jede Änderung, die in `main` gemergt wird, ist danach automatisch online.
 
-```
-Assets/
-  Scripts/
-    Core/       Spielstart (30 FPS), FPS-Anzeige
-    Input/      Joystick, Wisch-Bereich, Touch-Knöpfe
-    Player/     Spielfigur, Ein-/Aussteigen
-    Vehicles/   Auto
-    Camera/     Kamera hinter der Figur
-  Editor/       Baut die Testszene und setzt die Android-Einstellungen
-  Generated/    Automatisch erzeugte Materialien und Formen (entsteht beim ersten Öffnen)
-  Scenes/       Szenen
-Packages/       Benötigte Unity-Pakete
-```
+## Was drin ist
 
-Wichtig: Es werden **keine** Inhalte, Namen oder Grafiken aus anderen Spielen verwendet.
+- Tal mit Strasse, Fluss (Muota), Dorf mit Kirche, Ställen, Tannenwald, Felsen und Bergen mit Schneegipfeln
+- Spielfigur: gehen, rennen, springen (z.B. auf die Heuballen beim Start)
+- Zwei Autos zum Einsteigen und Herumfahren, mit km/h-Anzeige
+- Runde Mini-Karte, Gebietsnamen, FPS-Anzeige
+- Senkt automatisch die Auflösung, wenn das Handy zu langsam ist
+
+## Technik
+
+- [Three.js](https://threejs.org) (r170, liegt in `lib/`, keine Installation nötig)
+- Reines HTML + JavaScript, kein Build-Schritt
+- `src/` enthält den Code: `world.js` (Tal), `player.js`, `car.js`, `camera.js`, `input.js` (Touch), `minimap.js`
+
+Es werden **keine** Inhalte, Namen oder Grafiken aus anderen Spielen verwendet.

@@ -1,0 +1,156 @@
+import * as THREE from 'three';
+import { Builder, lowPolyMaterial } from './builder.js';
+import { makeBlobShadow } from './shadow.js';
+import { HALF } from './terrain.js';
+
+/** Einfaches Arcade-Auto: Gas, Bremse/Rückwärts, Lenken mit dem Joystick. */
+export class Car {
+  constructor(scene, world, spawn) {
+    this.world = world;
+    this.x = spawn.x; this.z = spawn.z;
+    this.heading = spawn.heading;
+    this.speed = 0;
+    this.steer = 0;
+    this.maxSpeed = 30;        // m/s (~110 km/h)
+    this.maxReverse = 8;
+    this.accel = 9;
+    this.brake = 22;
+    this.roll = 3;
+    this.hasDriver = false;
+    this.bump = 0;
+
+    this.mesh = new THREE.Group();
+    this.body = buildBody(spawn.color);
+    this.mesh.add(this.body);
+
+    // Räder
+    const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.26, 8);
+    wheelGeo.rotateZ(Math.PI / 2);
+    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x1b1b1b, flatShading: true });
+    const hubMat = new THREE.MeshLambertMaterial({ color: 0xb0b0b0 });
+    const hubGeo = new THREE.BoxGeometry(0.28, 0.16, 0.16);
+    this.wheels = [];
+    this.frontPivots = [];
+    for (const [x, z, front] of [[-0.86, 1.32, true], [0.86, 1.32, true], [-0.86, -1.3, false], [0.86, -1.3, false]]) {
+      const pivot = new THREE.Group();
+      pivot.position.set(x, 0.36, z);
+      const w = new THREE.Mesh(wheelGeo, wheelMat);
+      w.add(new THREE.Mesh(hubGeo, hubMat));
+      pivot.add(w);
+      this.mesh.add(pivot);
+      this.wheels.push(w);
+      if (front) this.frontPivots.push(pivot);
+    }
+    scene.add(this.mesh);
+    this.shadow = makeBlobShadow(2.6, 5);
+    scene.add(this.shadow);
+    this.placeOnGround();
+  }
+
+  get forward() { return { x: Math.sin(this.heading), z: Math.cos(this.heading) }; }
+
+  update(dt, input) {
+    const gas = this.hasDriver && input.gas;
+    const brake = this.hasDriver && input.brake;
+    const steerIn = this.hasDriver ? input.move.x : 0;
+    this.steer += (steerIn - this.steer) * Math.min(1, dt * 8);
+
+    let s = this.speed;
+    if (gas && !brake) s = approach(s, this.maxSpeed, this.accel * (1 - Math.max(0, s) / (this.maxSpeed * 1.4)) * dt);
+    else if (brake && s > 0.5) s = approach(s, 0, this.brake * dt);
+    else if (brake) s = approach(s, -this.maxReverse, this.accel * 0.6 * dt);
+    else s = approach(s, 0, (this.hasDriver ? this.roll : this.brake) * dt);
+
+    // Lenken: bei Tempo weniger stark, rückwärts umgekehrt
+    const speedFactor = Math.min(1, Math.abs(s) / 4) * (1 - Math.min(0.55, Math.abs(s) / 60));
+    this.heading -= this.steer * 1.9 * speedFactor * Math.sign(s) * dt;
+
+    const f = this.forward;
+    let nx = this.x + f.x * s * dt;
+    let nz = this.z + f.z * s * dt;
+
+    // zu steil? Dann bleibt das Auto stehen
+    const t = this.world.terrain;
+    const h0 = t.heightAt(this.x, this.z), h1 = t.heightAt(nx, nz);
+    const dist = Math.hypot(nx - this.x, nz - this.z);
+    let blocked = dist > 1e-4 && (h1 - h0) / dist > 0.75;
+
+    // Hindernisse: zwei Kreise vorne und hinten
+    if (!blocked) {
+      for (const off of [1.35, -1.35]) {
+        const cx = nx + f.x * off, cz = nz + f.z * off;
+        const r = this.world.colliders.resolve(cx, cz, 1.0, h1 + 0.2, 0.1, 1.4);
+        if (r.hit) { blocked = true; break; }
+      }
+    }
+    if (Math.abs(nx) > HALF - 6 || Math.abs(nz) > HALF - 6) blocked = true;
+
+    if (blocked) {
+      if (Math.abs(s) > 6) this.bump = 0.25;
+      s = -s * 0.25;
+    } else {
+      this.x = nx; this.z = nz;
+    }
+    this.speed = s;
+    this.bump = Math.max(0, this.bump - dt);
+
+    // Räder drehen und lenken
+    for (const w of this.wheels) w.rotation.x += s / 0.36 * dt;
+    for (const p of this.frontPivots) p.rotation.y = -this.steer * 0.45;
+    this.placeOnGround();
+  }
+
+  // Auto an das Gelände anpassen (neigen nach vorne/hinten und zur Seite)
+  placeOnGround() {
+    const t = this.world.terrain;
+    const f = this.forward;
+    const lx = Math.cos(this.heading), lz = -Math.sin(this.heading); // links
+    const hf = t.heightAt(this.x + f.x * 1.3, this.z + f.z * 1.3);
+    const hb = t.heightAt(this.x - f.x * 1.3, this.z - f.z * 1.3);
+    const hl = t.heightAt(this.x + lx * 0.85, this.z + lz * 0.85);
+    const hr = t.heightAt(this.x - lx * 0.85, this.z - lz * 0.85);
+    const y = Math.max((hf + hb) / 2, (hl + hr) / 2, t.heightAt(this.x, this.z));
+    this.mesh.position.set(this.x, y, this.z);
+    this.mesh.rotation.set(-Math.atan2(hf - hb, 2.6), this.heading, Math.atan2(hl - hr, 1.7), 'YXZ');
+    // leichtes Wanken beim Beschleunigen und in Kurven
+    this.body.rotation.z = this.steer * Math.min(1, Math.abs(this.speed) / 15) * 0.05;
+    this.body.rotation.x = this.bump > 0 ? Math.sin(this.bump * 40) * 0.04 : 0;
+    this.shadow.position.set(this.x, y + 0.06, this.z);
+    this.shadow.rotation.z = this.heading;
+  }
+
+  get kmh() { return Math.round(Math.abs(this.speed) * 3.6); }
+
+  exitPosition() {
+    const lx = Math.cos(this.heading), lz = -Math.sin(this.heading);
+    return [
+      { x: this.x + lx * 2, z: this.z + lz * 2 },
+      { x: this.x - lx * 2, z: this.z - lz * 2 },
+      { x: this.x - Math.sin(this.heading) * 3.5, z: this.z - Math.cos(this.heading) * 3.5 },
+    ];
+  }
+}
+
+function approach(v, target, step) {
+  return v < target ? Math.min(target, v + step) : Math.max(target, v - step);
+}
+
+// Karosserie im Stil eines kantigen Kombis aus den 90ern
+function buildBody(color) {
+  const b = new Builder();
+  const dark = 0x1d1f22, glass = 0x2a3a48, chrome = 0xc9c9c9;
+  b.box(0, 0.62, 0, 1.78, 0.5, 4.3, color);              // Unterteil
+  b.box(0, 1.08, -0.35, 1.66, 0.46, 2.4, color);          // Dach-Teil
+  b.box(0, 1.1, 0.87, 1.6, 0.4, 0.05, glass);             // Frontscheibe
+  b.box(0, 1.1, -1.56, 1.56, 0.38, 0.05, glass);          // Heckscheibe
+  for (const s of [-1, 1]) {
+    b.box(s * 0.84, 1.1, -0.35, 0.04, 0.36, 2.2, glass);  // Seitenfenster
+    b.box(s * 0.6, 0.68, 2.16, 0.38, 0.16, 0.04, 0xfff3c4); // Scheinwerfer
+    b.box(s * 0.62, 0.7, -2.16, 0.34, 0.14, 0.04, 0xc2271b); // Rücklichter
+  }
+  b.box(0, 0.42, 2.18, 1.82, 0.14, 0.12, dark);           // Stossstange vorne
+  b.box(0, 0.42, -2.18, 1.82, 0.14, 0.12, dark);          // Stossstange hinten
+  b.box(0, 0.62, 2.17, 0.7, 0.14, 0.03, chrome);          // Kühlergrill
+  b.box(0, 0.33, 0, 1.6, 0.12, 3.9, dark);                // Unterboden
+  return b.build(lowPolyMaterial());
+}
