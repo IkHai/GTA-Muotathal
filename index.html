@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#7fa9d6">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Muotathal 1</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "./lib/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- Touch-Bereiche -->
+<div id="stick-zone"></div>
+<div id="look-zone"></div>
+<div id="stick-base"><div id="stick-knob"></div></div>
+
+<!-- Knöpfe -->
+<div id="buttons">
+  <button class="btn" id="btn-enter" data-key="enter">Einsteigen</button>
+  <button class="btn big" id="btn-jump" data-key="jump">Springen</button>
+  <button class="btn big" id="btn-gas" data-key="gas">Gas</button>
+  <button class="btn" id="btn-brake" data-key="brake">Bremse</button>
+</div>
+
+<!-- Anzeigen -->
+<div id="hud">
+  <canvas id="minimap" width="140" height="140"></canvas>
+  <div id="fps">-- FPS</div>
+  <div id="speed"></div>
+  <div id="toast"></div>
+</div>
+
+<!-- Startbildschirm -->
+<div id="start">
+  <div class="title">MUOTATHAL <span>1</span></div>
+  <div class="sub">Ein Open-World-Spiel im Muotathal</div>
+  <div class="tap">Tippen zum Starten</div>
+  <div class="help">
+    Links: Joystick zum Laufen und Lenken &middot; Rechts: wischen für die Kamera<br>
+    Am PC: WASD, Leertaste, E und Maus ziehen
+  </div>
+  <div id="loading">Lade Tal …</div>
+</div>
+
+<div id="rotate">
+  <div class="phone"></div>
+  <div>Bitte das Handy quer halten</div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

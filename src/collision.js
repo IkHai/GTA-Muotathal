@@ -1,0 +1,111 @@
+// Einfache Kollisionen: Kreise (Bäume, Felsen) und Kisten (Häuser).
+// Ein Gitter sorgt dafür, dass nur Hindernisse in der Nähe geprüft werden.
+
+const BUCKET = 16;
+
+export class Colliders {
+  constructor() { this.map = new Map(); this.boxes = []; }
+
+  _key(i, j) { return i * 10007 + j; }
+
+  _insert(item, minX, maxX, minZ, maxZ) {
+    for (let i = Math.floor(minX / BUCKET); i <= Math.floor(maxX / BUCKET); i++) {
+      for (let j = Math.floor(minZ / BUCKET); j <= Math.floor(maxZ / BUCKET); j++) {
+        const k = this._key(i, j);
+        let list = this.map.get(k);
+        if (!list) { list = []; this.map.set(k, list); }
+        list.push(item);
+      }
+    }
+  }
+
+  addCircle(x, z, r) {
+    this._insert({ type: 0, x, z, r }, x - r, x + r, z - r, z + r);
+  }
+
+  // Achsenparallele Kiste. bottom/top = Höhe unten/oben
+  addBox(minX, maxX, minZ, maxZ, bottom, top) {
+    const b = { type: 1, minX, maxX, minZ, maxZ, bottom, top };
+    this.boxes.push(b);
+    this._insert(b, minX, maxX, minZ, maxZ);
+  }
+
+  // Box um Mitte mit Drehung 0 oder 90 Grad
+  addBoxCentered(x, z, w, d, bottom, top, rotated = false) {
+    if (rotated) [w, d] = [d, w];
+    this.addBox(x - w / 2, x + w / 2, z - d / 2, z + d / 2, bottom, top);
+  }
+
+  near(x, z, r) {
+    const out = new Set();
+    for (let i = Math.floor((x - r) / BUCKET); i <= Math.floor((x + r) / BUCKET); i++) {
+      for (let j = Math.floor((z - r) / BUCKET); j <= Math.floor((z + r) / BUCKET); j++) {
+        const list = this.map.get(this._key(i, j));
+        if (list) for (const it of list) out.add(it);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Schiebt einen Kreis (Figur) aus Hindernissen heraus.
+   * feetY: Fusshöhe. Kisten, auf denen man steht, blockieren nicht.
+   * Gibt {x, z, hit} zurück.
+   */
+  resolve(x, z, r, feetY, stepHeight = 0.35, headroom = 1.8) {
+    let hit = false;
+    for (const it of this.near(x, z, r + 1)) {
+      if (it.type === 0) {
+        const dx = x - it.x, dz = z - it.z;
+        const min = r + it.r;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < min * min && d2 > 1e-8) {
+          const d = Math.sqrt(d2);
+          x = it.x + dx / d * min;
+          z = it.z + dz / d * min;
+          hit = true;
+        }
+      } else {
+        if (feetY >= it.top - stepHeight || feetY + headroom < it.bottom) continue;
+        const cx = Math.max(it.minX, Math.min(x, it.maxX));
+        const cz = Math.max(it.minZ, Math.min(z, it.maxZ));
+        const dx = x - cx, dz = z - cz;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < r * r) {
+          hit = true;
+          if (d2 > 1e-8) {
+            const d = Math.sqrt(d2);
+            x = cx + dx / d * r;
+            z = cz + dz / d * r;
+          } else {
+            // Mitte steckt in der Kiste: kürzester Weg hinaus
+            const pushes = [it.minX - r - x, it.maxX + r - x, it.minZ - r - z, it.maxZ + r - z];
+            let best = 0;
+            for (let k = 1; k < 4; k++) if (Math.abs(pushes[k]) < Math.abs(pushes[best])) best = k;
+            if (best < 2) x += pushes[best]; else z += pushes[best];
+          }
+        }
+      }
+    }
+    return { x, z, hit };
+  }
+
+  // Höchste Kisten-Oberfläche unter einem Punkt, auf die man treten kann
+  supportAt(x, z, r, feetY, stepHeight = 0.35) {
+    let best = -Infinity;
+    for (const it of this.near(x, z, r)) {
+      if (it.type !== 1) continue;
+      if (x < it.minX - r * 0.5 || x > it.maxX + r * 0.5 || z < it.minZ - r * 0.5 || z > it.maxZ + r * 0.5) continue;
+      if (feetY >= it.top - stepHeight && it.top > best) best = it.top;
+    }
+    return best;
+  }
+
+  // Ist ein Punkt in einer Kiste? (für die Kamera)
+  insideBox(x, y, z) {
+    for (const it of this.near(x, z, 0.5)) {
+      if (it.type === 1 && x > it.minX && x < it.maxX && z > it.minZ && z < it.maxZ && y > it.bottom && y < it.top) return true;
+    }
+    return false;
+  }
+}
