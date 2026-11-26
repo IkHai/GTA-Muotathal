@@ -220,6 +220,35 @@ export function drawRoadNet(net, terrain, chunkAt, colliders, colors) {
           quadUp(ch.roads, 0xd8d8cc, P(ax, az, o1, ya), P(bx, bz, o1, yb), P(bx, bz, o2, yb), P(ax, az, o2, ya));
         }
       }
+      // Trottoir mit Randstein im Dorf (Landnutzung „Siedlung“), nicht über Kreuzungen
+      if (!w.bridge && hw >= 2 && (w.main || r.t === 'residential' || r.t === 'living_street')) {
+        for (const sgn of [1, -1]) {
+          const mx = (ax + bx) / 2 + nx * (hw + 0.9) * sgn, mz = (az + bz) / 2 + nz * (hw + 0.9) * sgn;
+          if (terrain.landAt(mx, mz) !== 4) continue;
+          const other = net.roadAt(mx, mz, 0.4);
+          if (other === other) continue;
+          const g = terrain.groundAt(mx, mz), ym = (ya + yb) / 2;
+          if (g - ym > 0.5) continue;                     // Hang: kein Platz
+          const P = (x, z, o, y) => [x + nx * o * sgn, y, z + nz * o * sgn];
+          const ca = ya + 0.13, cb = yb + 0.13, wo = hw + 1.9;
+          // Randstein: Kante und Oberseite
+          const s1 = sgn > 0 ? [P(ax, az, hw, ya), P(bx, bz, hw, yb), P(bx, bz, hw, cb), P(ax, az, hw, ca)] : [P(bx, bz, hw, yb), P(ax, az, hw, ya), P(ax, az, hw, ca), P(bx, bz, hw, cb)];
+          push(ch.roads, 0xb4b0a6, s1[0], s1[1], s1[2], s1[0], s1[2], s1[3]);
+          push(ch.roads, 0xb4b0a6, s1[0], s1[2], s1[1], s1[0], s1[3], s1[2]);
+          quadUp(ch.roads, 0xc2beb4, P(ax, az, hw, ca), P(bx, bz, hw, cb), P(bx, bz, hw + 0.2, cb), P(ax, az, hw + 0.2, ca));
+          // Gehweg (etwas heller als die Fahrbahn) mit Fugen alle 4 m
+          const k2 = 0.95 + ((i * 3) % 4) * 0.03;
+          quadUp(ch.roads, new THREE.Color(0x8e8a84).multiplyScalar(k2), P(ax, az, hw + 0.2, ca), P(bx, bz, hw + 0.2, cb), P(bx, bz, wo, cb), P(ax, az, wo, ca));
+          quadUp(ch.roads, 0x6e6a64, P(ax, az, hw + 0.2, ca + 0.003), P(ax + ex * 0.4, az + ez * 0.4, hw + 0.2, ca + 0.003), P(ax + ex * 0.4, az + ez * 0.4, wo, ca + 0.003), P(ax, az, wo, ca + 0.003));
+          // Aussenkante bis zum Boden
+          const ga = terrain.groundAt(...[P(ax, az, wo, 0)].map((v) => [v[0], v[2]])[0]) - 0.1, gb = terrain.groundAt(...[P(bx, bz, wo, 0)].map((v) => [v[0], v[2]])[0]) - 0.1;
+          if (ga < ca || gb < cb) {
+            const A = P(ax, az, wo, ca), Bq = P(bx, bz, wo, cb), A2 = P(ax, az, wo, Math.min(ca, ga)), B2 = P(bx, bz, wo, Math.min(cb, gb));
+            push(ch.roads, 0x8a867c, A, Bq, B2, A, B2, A2);
+            push(ch.roads, 0x8a867c, A, B2, Bq, A, A2, B2);
+          }
+        }
+      }
       if (w.bridge) {
         bridgeSegment(ch.detail.plain, L0, L1, R0, R1, nx, nz, terrain, i, colliders, ax, az, bx, bz, len, h[i], h[i + 1], hw);
       } else {

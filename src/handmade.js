@@ -359,6 +359,29 @@ export function posterTex() {
   });
 }
 
+// Treppe von einer Tür (Höhe topY, lokal) bis hinunter auf den echten Boden davor.
+// walk bekommt begehbare Stufen [x, z, halbe Breite, halbe Tiefe, Oberkante]. Gibt das z am Fuss zurück.
+function frontSteps(B, walk, F, terrain, x, topY, width, zStart) {
+  const [gx, gz] = F.toWorld(x, zStart - 1.5);
+  const g = terrain.heightAt(gx, gz) - F.gMin;
+  if (topY - g < 0.1) return zStart;
+  const run = 0.3, n = Math.ceil((topY - g) / 0.17), rise = (topY - g) / n;
+  for (let i = 0; i < n; i++) {
+    const top = topY - rise * i, zc = zStart - (i + 0.5) * run, bot = g - 0.4;
+    B.box(x, (top + bot) / 2, zc, width, top - bot, run, i % 2 ? 0x9a968e : 0x948f86);
+    B.box(x, top - 0.015, zc - run / 2 + 0.03, width, 0.03, 0.06, 0x6a6660);          // Kante
+    walk.push([x, zc, width / 2, run / 2, top]);
+  }
+  // Wangen aus Beton links und rechts
+  for (const sd of [-1, 1]) {
+    for (let i = 0; i < n; i++) {
+      const top = topY - rise * i + 0.25, zc = zStart - (i + 0.5) * run, bot = g - 0.4;
+      B.box(x + sd * (width / 2 + 0.1), (top + bot) / 2, zc, 0.2, top - bot, run, 0x7e7a72);
+    }
+  }
+  return zStart - n * run;
+}
+
 export function buildClub(pts, ctx) {
   const { terrain, chunkAt, colliders } = ctx;
   const F = frameFromFootprint(pts, terrain);
@@ -491,6 +514,19 @@ export function buildClub(pts, ctx) {
   const zl = z0 + steps * run, landD = 1.8;
   B.box(sx, (SY + base) / 2, zl + landD / 2, sw, SY - base, landD, 0x8e8a84);
   walk.push([sx, zl + landD / 2, sw / 2, landD / 2, SY]);
+  frontSteps(B, walk, F, terrain, sx, 0, sw, z0);                       // falls der Boden dort tiefer liegt
+  // Eingang: Podest mit Teppich, falls die Strasse tiefer liegt, und Stufen hinunter
+  let clubFoot = -2.6;
+  {
+    const [gx, gz] = F.toWorld(dx, -2.0);
+    const g = terrain.heightAt(gx, gz) - F.gMin;
+    if (g < -0.1) {
+      B.box(dx, (g - 0.4) / 2 - 0.02, -1.7, 3.4, -(g - 0.4), 3.2, 0x8e8a84);
+      for (const sd of [-1, 1]) B.box(dx + sd * 1.75, (g - 0.4) / 2 + 0.05, -1.7, 0.12, -(g - 0.4) + 0.14, 3.2, 0x6a6660);
+      walk.push([dx, -1.7, 1.7, 1.6, 0]);
+      clubFoot = frontSteps(B, walk, F, terrain, dx, -0.17, 2.4, -3.3) - 0.6;
+    }
+  }
   // Geländer
   const railLen = Math.hypot(steps * run, SY);
   B.shape(new THREE.BoxGeometry(0.05, 0.05, railLen), sx + sw / 2 - 0.05, SY / 2 + 0.95, z0 + steps * run / 2, 1, 1, 1, 0x3a3a3c, 0, -Math.atan2(SY, steps * run), 0);
@@ -557,7 +593,7 @@ export function buildClub(pts, ctx) {
     colliders.addCircle(wx, wz, r);
   }
 
-  const [ex, ez] = F.toWorld(dx, -2.6);
+  const [ex, ez] = F.toWorld(dx, clubFoot);
   const [ux, uz] = F.toWorld(sx, doorZ);
   const [nx, nz] = F.toWorld(dx, -0.9);
   const result = { id: 'club', name: "Hell's Club", door: { x: ex, z: ez }, entry: { x: nx, z: nz, y: oy }, upperDoor: { x: ux, z: uz, y: oy + SY }, x: F.ox, z: F.oz, heading: F.rotY };
@@ -647,7 +683,10 @@ export function buildBlock(pts, ctx) {
   B.box(ex, G0 + 1.05, -0.04, 1.3, 2.3, 0.08, 0x5c4630);
   B.box(ex, G0 + 1.05, -0.09, 0.08, 2.1, 0.02, 0x2a2a2a);
   B.box(ex, G0 + 2.45, -0.7, 2.4, 0.15, 1.4, 0x6a6a68);
-  for (let k = 0; k < 3; k++) B.box(ex, G0 * (k + 0.5) / 3, -0.4 - (2 - k) * 0.3, 2.0, G0 / 3 * 1.02, 0.35 + (2 - k) * 0.3 * 0 + 0.3, 0x8a8680);
+  const walk = [];
+  B.box(ex, G0 / 2 - 0.5, -0.45, 2.2, G0 + 1.0, 0.9, 0x8a8680);                              // Podest vor der Tür
+  walk.push([ex, -0.45, 1.1, 0.45, G0]);
+  const footZ = frontSteps(B, walk, F, terrain, ex, G0 - 0.17, 2.0, -0.9);
   B.box(ex + 1.25, G0 + 1.2, -0.1, 0.9, 0.6, 0.18, 0x8a6b3a);
   B.box(ex - 0.9, G0 + 1.3, -0.06, 0.2, 0.3, 0.04, 0xbcb6a8);
   // Fallrohre, Satellitenschüssel, Mülltonnen
@@ -669,7 +708,14 @@ export function buildBlock(pts, ctx) {
 
   (chunkAt(F.ox, F.oz).extra ||= []).push(group);
   colliders.addOrientedBox(F.ox, F.oz, F.ax, F.az, F.L / 2, F.W / 2, F.gMin - 2, F.gMin + ridge + 1);
-  const [dx, dz] = F.toWorld(ex, -1.6);
+  {
+    const c = Math.cos(F.rotY), s = Math.sin(F.rotY);
+    for (const [x, z, hu, hv, top] of walk) {
+      const [wx, wz] = F.toWorld(x, z);
+      colliders.addOrientedBox(wx, wz, c, -s, hu, hv, F.gMin - 3, F.gMin + top).walk = true;
+    }
+  }
+  const [dx, dz] = F.toWorld(ex, Math.min(-1.6, footZ - 0.6));
   return {
     result: { id: 'home', name: 'Wohnblock', door: { x: dx, z: dz }, x: F.ox, z: F.oz, heading: F.rotY },
     info: { x: F.ox, z: F.oz, pts, church: false },

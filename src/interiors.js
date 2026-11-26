@@ -84,14 +84,17 @@ const glowMesh = (B) => B.build(new THREE.MeshBasicMaterial({ vertexColors: true
 
 // Ein Stockwerk-Baukasten: alles in lokalen Koordinaten (Gruppe bei O), Kollision in Welt
 class Kit {
-  constructor(O, cols) { this.O = O; this.cols = cols; this.bs = {}; this.cur = 'grain'; this.G = new Builder(); this.extra = []; this.plan = []; this.lights = []; }
+  constructor(O, cols) { this.O = O; this.cols = cols; this.bs = {}; this.cur = 'grain'; this.G = new Builder(); this.extra = []; this.plan = []; this.lights = []; this.s = 1; }
+  // Welt-x für lokales x (gespiegelte Räume: s = -1) und Bereich [min, max]
+  X(x) { return this.O.x + this.s * x; }
+  XR(a, b) { const p = this.X(a), q = this.X(b); return p < q ? [p, q] : [q, p]; }
   // Werkstoff wählen: alles danach bekommt diese Textur (grain, wood, tiles, velvet, quilt, damask, mirror)
   get B() { return this.bs[this.cur] ??= new Builder(); }
   mat(name, fn) { const old = this.cur; this.cur = name; fn(); this.cur = old; }
   // Lampe: wirft farbiges Licht (r = Reichweite) und hat optional einen Schein
   light(x, y, z, color, r, strength = 1, halo = 0) {
     const c = new THREE.Color(color);
-    this.lights.push({ p: new THREE.Vector3(this.O.x + x, this.O.y + y, this.O.z + z), c: new THREE.Vector3(c.r, c.g, c.b).multiplyScalar(strength), r });
+    this.lights.push({ p: new THREE.Vector3(this.X(x), this.O.y + y, this.O.z + z), c: new THREE.Vector3(c.r, c.g, c.b).multiplyScalar(strength), r });
     if (halo) this.halo(x, y, z, color, halo);
   }
   halo(x, y, z, color, size) {
@@ -105,29 +108,29 @@ class Kit {
     if (solid) {
       const O = this.O, rot = Math.abs(Math.sin(ry)) > 0.7;
       const wx = rot ? sz : sx, wz = rot ? sx : sz;
-      this.cols.addBox(O.x + x - wx / 2, O.x + x + wx / 2, O.z + z - wz / 2, O.z + z + wz / 2, O.y + y - sy / 2, O.y + y + sy / 2);
+      this.cols.addBox(...this.XR(x - wx / 2, x + wx / 2), O.z + z - wz / 2, O.z + z + wz / 2, O.y + y - sy / 2, O.y + y + sy / 2);
       this.mark(x - wx / 2, z - wz / 2, x + wx / 2, z + wz / 2, y - sy / 2, y + sy / 2);
     }
   }
   // für die Karte: Rechteck in Weltkoordinaten mit Höhe
-  mark(x0, z0, x1, z1, y0, y1, kind = 0) { const O = this.O; this.plan.push([O.x + x0, O.z + z0, O.x + x1, O.z + z1, O.y + y0, O.y + y1, kind]); }
+  mark(x0, z0, x1, z1, y0, y1, kind = 0) { const O = this.O, [a, b] = this.XR(x0, x1); this.plan.push([a, O.z + z0, b, O.z + z1, O.y + y0, O.y + y1, kind]); }
   // runde Hindernisse nur in einem Stockwerk
   circle(x, z, r, y0, y1) {
     const O = this.O;
-    this.cols.addCircle(O.x + x, O.z + z, r, O.y + y0, O.y + y1);
+    this.cols.addCircle(this.X(x), O.z + z, r, O.y + y0, O.y + y1);
     this.mark(x - r, z - r, x + r, z + r, y0, y1, 2);
   }
   // fester Block mit Kollision
   solid(x, y, z, sx, sy, sz, color) {
     this.B.box(x, y, z, sx, sy, sz, color);
     const O = this.O;
-    this.cols.addBox(O.x + x - sx / 2, O.x + x + sx / 2, O.z + z - sz / 2, O.z + z + sz / 2, O.y + y - sy / 2, O.y + y + sy / 2);
+    this.cols.addBox(...this.XR(x - sx / 2, x + sx / 2), O.z + z - sz / 2, O.z + z + sz / 2, O.y + y - sy / 2, O.y + y + sy / 2);
     this.mark(x - sx / 2, z - sz / 2, x + sx / 2, z + sz / 2, y - sy / 2, y + sy / 2);
   }
   // nur Kollision
   block(x, z, sx, sz, y0, y1) {
     const O = this.O;
-    this.cols.addBox(O.x + x - sx / 2, O.x + x + sx / 2, O.z + z - sz / 2, O.z + z + sz / 2, O.y + y0, O.y + y1);
+    this.cols.addBox(...this.XR(x - sx / 2, x + sx / 2), O.z + z - sz / 2, O.z + z + sz / 2, O.y + y0, O.y + y1);
     this.mark(x - sx / 2, z - sz / 2, x + sx / 2, z + sz / 2, y0, y1);
   }
   // Treppenlauf entlang z: begehbare Stufen von (z0, y0) nach (z1, y1)
@@ -137,7 +140,7 @@ class Kit {
       const top = y0 + rise * (i + 1), zc = z0 + dz * (i + 0.5), d = Math.abs(dz);
       this.B.box(xc, top - 0.17, zc, w, 0.34, d, i % 2 ? color : color + 0x060606);
       this.B.box(xc, top - 0.015, zc + Math.sign(dz) * (d / 2 - 0.03), w, 0.03, 0.06, nose);
-      this.cols.addBox(O.x + xc - w / 2, O.x + xc + w / 2, O.z + Math.min(zc - d / 2, zc + d / 2), O.z + Math.max(zc - d / 2, zc + d / 2), O.y + top - 0.34, O.y + top);
+      this.cols.addBox(...this.XR(xc - w / 2, xc + w / 2), O.z + Math.min(zc - d / 2, zc + d / 2), O.z + Math.max(zc - d / 2, zc + d / 2), O.y + top - 0.34, O.y + top);
     }
     this.mark(xc - w / 2, Math.min(z0, z1), xc + w / 2, Math.max(z0, z1), Math.min(y0, y1), Math.max(y0, y1), 1);
   }
@@ -194,6 +197,7 @@ class Kit {
   picture(tex, x, y, z, w, h, ry, glow = false) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), glow ? new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, transparent: true }) : new THREE.MeshBasicMaterial({ map: tex, color: 0xb0b0b0 }));
     m.position.set(x, y, z); m.rotation.y = ry;
+    if (this.s < 0) m.scale.x = -1;     // Schrift nicht spiegelverkehrt
     this.extra.push(m);
     return m;
   }
@@ -219,7 +223,10 @@ function tableWithCandle(k, x, z, y = 0, r = 0.42) {
 function buildClubInside(club, terrain, cols) {
   const O = new THREE.Vector3(club.x, terrain.heightAt(club.x, club.z) - DEPTH, club.z);
   const group = new THREE.Group(); group.position.copy(O);
+  // gebaut ist alles gespiegelt (x -> -x): Treppenhaus links, wenn man hereinkommt
+  const inner = new THREE.Group(); inner.scale.x = -1; group.add(inner);
   const k = new Kit(O, cols);
+  k.s = -1;
   const hx = 6.75, D = 13.5;
   // gleiche Stockwerkhöhen wie aussen: EG 4.3 m, 1. OG 3.4 m
   const Y1 = 4.3, Y2 = 7.7, TOP = 10.4;
@@ -392,7 +399,7 @@ function buildClubInside(club, terrain, cols) {
   booth(hx - 0.45, 5.6, 1); booth(hx - 0.45, 9.4, 1);
   tableWithCandle(k, -2.8, 3.4); tableWithCandle(k, -3.0, 9.0); tableWithCandle(k, 3.5, 2.6 + 1.6);
   for (const [x, z] of [[-2.8, 2.6], [-2.8, 4.2], [-3.0, 8.2], [-3.0, 9.8]]) {
-    const back = z % 1 > 0.5 ? 0.2 : -0.2;
+    const tz = z < 6 ? 3.4 : 9.0, back = z < tz ? -0.2 : 0.2;     // Lehne weg vom Tisch
     k.mat('quilt', () => { k.round(x, 0.28, z, 0.48, 0.14, 0.48, 0x7a1430, 0.05); k.round(x, 0.65, z + back, 0.48, 0.5, 0.1, 0x6a1028, 0.04); });
     for (const [ox, oz] of [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]]) k.B.box(x + ox, 0.1, z + oz, 0.03, 0.2, 0.03, 0x1a1a1a);
   }
@@ -548,14 +555,14 @@ function buildClubInside(club, terrain, cols) {
   bruno.head.add(bf(new THREE.BoxGeometry(0.2, 0.05, 0.03), bruno.M(0x050505), 0, 0.02, 0.105));
   bruno.hip.add(bf(new THREE.TorusGeometry(0.1, 0.012, 6, 16), bruno.M(0xd4af37), 0, 0.55, 0.1, 1, 1.2, 1));
   bruno.group.traverse((o) => { if (o.material && o.material.emissive) o.material.emissive.copy(o.material.color).multiplyScalar(0.3); });
-  bruno.group.position.set(-1.0, 0, 10.2);
+  bruno.group.position.set(1.0, 0, 10.2);
   bruno.group.rotation.y = Math.PI;
   bruno.group.userData.fig = bruno;
   group.add(bruno.group);
   k.circle(-1.0, 10.2, 0.35, 0, 1.8);
-  k.done(group);
+  k.done(inner);
 
-  const W = (x, y, z) => new THREE.Vector3(O.x + x, O.y + y, O.z + z);
+  const W = (x, y, z) => new THREE.Vector3(O.x - x, O.y + y, O.z + z);
   return {
     group, O, ball, cones, bruno: bruno.group, plan: k.plan, lights: k.lights, amb: 0.42,
     floorName: (y) => (y - O.y < Y1 - 1.0 ? 'EG' : y - O.y < Y2 - 0.8 ? '1. OG' : '2. OG'),
@@ -578,13 +585,15 @@ function buildBlockInside(home, terrain, cols) {
   const hx = 3, D = 5.5, FHs = 2.9, TOPB = 3 * FHs + 2.75;
   const ZF = 1.6, ZM = 4.0, CM = 1.5;
   const laneA = (0 + CM) / 2, laneB = (CM + hx) / 2, lw = CM - 0.14;
-  const wallC = 0xcfc8b4, stepC = 0x8a847a;
-  k.floor(-hx, hx, 0, D, 0, 0x8a8478);
+  const wallC = 0xe2dccb, stepC = 0x9a948a;
+  k.mat('tiles', () => k.floor(-hx, hx, 0, D, 0, 0xa8a090));
   for (let x = -hx + 0.3; x < 0; x += 0.6) for (let z = 0.3; z < D; z += 0.6) if (((x + z) * 1.67 | 0) % 2) k.B.box(x, 0.005, z, 0.58, 0.01, 0.58, 0x6e685e);
   for (let f = 1; f <= 3; f++) {
     const y = f * FHs;
-    k.solid(-hx / 2, y - 0.15, D / 2, hx, 0.3, D, 0x9a948a);                 // Vorplatz links
-    k.solid(hx / 2, y - 0.15, ZF / 2, hx, 0.3, ZF, 0x9a948a);                // Vorplatz vor den Läufen
+    k.mat('tiles', () => {
+      k.solid(-hx / 2, y - 0.15, D / 2, hx, 0.3, D, 0xb0a898);                 // Vorplatz links
+      k.solid(hx / 2, y - 0.15, ZF / 2, hx, 0.3, ZF, 0xb0a898);                // Vorplatz vor den Läufen
+    });
   }
   k.solid(0, TOPB + 0.1, D / 2, hx * 2, 0.2, D, 0xd8d2c4);
   for (const [axis, f, a0, a1] of [['x', -0.08, -hx, hx], ['x', D + 0.08, -hx, hx], ['z', hx + 0.08, 0, D]]) k.wall(axis, f, a0, a1, 0, TOPB, wallC, [], 0.16);
@@ -593,12 +602,30 @@ function buildBlockInside(home, terrain, cols) {
   k.wall('z', -hx - 0.08, 0, D, 3 * FHs, TOPB - 3 * FHs, wallC, [{ c: 0.85, w: 0.95 }], 0.16);
   k.wall('z', 0, ZF, D, 0, TOPB, wallC, [], 0.14);                         // Wand zwischen Vorplatz und Läufen
   k.wall('z', CM, ZF, ZM, 0, TOPB, wallC, [], 0.14);                       // Mittelwand
-  for (let f = 0; f <= 3; f++) for (const [x, z, sx, sz] of [[-hx / 2, 0.02, hx, 0.03], [-hx + 0.02, D / 2, 0.03, D], [-0.09, (ZF + D) / 2, 0.03, D - ZF]]) k.B.box(x, f * FHs + 0.7, z, sx, 1.4, sz, 0x5a7a62);
+  // Sockel aus hellen Platten und Holzleiste, mit Lücken bei den Türen
+  for (let f = 0; f <= 3; f++) {
+    const y = f * FHs;
+    const segs = [
+      ['x', 0.03, f === 0 ? [[-hx, -1.85], [-0.55, 0]] : [[-hx, 0]]],
+      ['z', -hx + 0.03, f === 0 ? [[0, D]] : [[0, 0.3], [1.4, D]]],
+      ['z', -0.1, [[ZF, D]]],
+    ];
+    for (const [axis, fixed, parts] of segs) for (const [a, b] of parts) {
+      const c = (a + b) / 2, len = b - a;
+      k.mat('tiles', () => axis === 'x' ? k.B.box(c, y + 0.5, fixed, len, 1.0, 0.02, 0xd8d0c0) : k.B.box(fixed, y + 0.5, c, 0.02, 1.0, len, 0xd8d0c0));
+      k.mat('wood', () => axis === 'x' ? k.round(c, y + 1.03, fixed + 0.01, len, 0.06, 0.04, 0x7a5432, 0.015) : k.round(fixed + (fixed < -1 ? 0.01 : -0.01), y + 1.03, c, 0.04, 0.06, len, 0x7a5432, 0.015));
+    }
+  }
   for (let f = 0; f < 3; f++) {
     const y = f * FHs, ym = y + FHs / 2;
     k.flight(laneA, lw, ZF, ZM, y, ym, 8, stepC, 0x5a544a);
     k.solid(hx / 2, ym - 0.15, (ZM + D) / 2, hx, 0.3, D - ZM, 0x9a948a);   // Zwischenpodest
     k.flight(laneB, lw, ZM, ZF, ym, y + FHs, 8, stepC, 0x5a544a);
+    // Handläufe aus Holz an den Aussenwänden
+    for (const [x, z0, z1, y0, y1] of [[0.07, ZF, ZM, y, ym], [hx - 0.07, ZM, ZF, ym, y + FHs]]) {
+      const dz = z1 - z0, dy = y1 - y0, L = Math.hypot(dz, dy);
+      k.mat('wood', () => k.B.shape(roundBox(0.05, 0.05, L, 0.02), x, (y0 + y1) / 2 + 0.95, (z0 + z1) / 2, 1, 1, 1, 0x6a4428, 0, Math.atan2(-dy, dz)));
+    }
     k.G.shape(new THREE.SphereGeometry(0.09, 8, 6), -1.5, y + FHs - 0.55, 2.6, 1, 1, 1, 0xfff0c0);
     k.light(-1.5, y + FHs - 0.7, 2.6, 0xfff0c0, 4.5, 0.6, 0.6);
     k.light(hx - 0.5, ym + 1.8, (ZM + D) / 2, 0xfff0c0, 3.5, 0.5);
@@ -628,7 +655,7 @@ function buildBlockInside(home, terrain, cols) {
   const fg = new THREE.Group(); fg.position.set(FOX, 0, 0); group.add(fg);
   const plan0 = k.plan, lights0 = k.lights;
   k = new Kit(Of, cols);
-  k.floor(-fx, fx, 0, FD, FY, 0x5a4a3a);
+  k.mat('wood', () => k.floor(-fx, fx, 0, FD, FY, 0x7a5a3a));
   k.solid(0, FY + FH + 0.1, FD / 2, fx * 2, 0.2, FD, 0xd0c8b0);
   for (const [axis, f, a0, a1] of [['x', -0.08, -fx, fx], ['x', FD + 0.08, -fx, fx], ['z', -fx - 0.08, 0, FD]]) {
     k.wall(axis, f, a0, a1, FY, FH, 0x9a8c64, [], 0.16);

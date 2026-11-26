@@ -69,6 +69,7 @@ export class Minimap {
     ctx.scale(zoom, zoom);
     ctx.drawImage(this.map, -(pos.x + this.half) * this.scale, -(pos.z + this.half) * this.scale);
     ctx.scale(this.scale, this.scale);
+    if (this.zone) this.zone.draw(ctx, (x) => x - pos.x, (z) => z - pos.z, 2.5 / (zoom * this.scale), false);
     for (const car of cars) {
       if (car.hasDriver) continue;
       ctx.fillStyle = '#f2b632';
@@ -232,6 +233,7 @@ export class BigMap {
     g.drawImage(this.mini.map, toX(-half), toY(-half), 2 * half / k, 2 * half / k);
     g.strokeStyle = 'rgba(240,90,50,.9)'; g.lineWidth = 3 * dpr;
     g.strokeRect(toX(-half + 5), toY(-half + 5), (2 * half - 10) / k, (2 * half - 10) / k);
+    if (this.zone) this.zone.draw(g, toX, toY, 3 * dpr, true);
     // Ortsnamen
     g.textAlign = 'center'; g.textBaseline = 'middle';
     for (const pl of this.world.places) {
