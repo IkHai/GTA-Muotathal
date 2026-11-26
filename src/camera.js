@@ -55,19 +55,25 @@ export class FollowCamera {
     const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
     const dx = -Math.sin(this.yaw) * cp, dy = sp, dz = -Math.cos(this.yaw) * cp;
 
-    // Nicht durch Berge oder Häuser schauen
+    // Nicht durch Berge oder Häuser schauen. Drinnen fein abtasten und mit Abstand zur Wand,
+    // damit man nicht durch dünne Mauern sieht.
     let allowed = this.dist;
-    const steps = 10;
+    const cols = this.indoor;
+    const steps = cols ? Math.ceil(this.dist / 0.08) : 10;
+    const pad = 0.28;
+    const hit = (x, y, z) => cols
+      ? cols.insideBox(x, y, z) || cols.insideBox(x + pad, y, z) || cols.insideBox(x - pad, y, z) || cols.insideBox(x, y, z + pad) || cols.insideBox(x, y, z - pad) || cols.insideBox(x, y + pad, z) || cols.insideBox(x, y - pad, z)
+      : this.world.terrain.heightAt(x, z, y) + 0.4 > y || this.world.colliders.insideBox(x, y, z);
     for (let i = 1; i <= steps; i++) {
       const d = this.dist * i / steps;
       const x = this.focus.x + dx * d, y = this.focus.y + dy * d, z = this.focus.z + dz * d;
-      const blocked = this.indoor ? this.indoor.insideBox(x, y, z) : (this.world.terrain.heightAt(x, z, y) + 0.4 > y || this.world.colliders.insideBox(x, y, z));
-      if (blocked) {
-        allowed = Math.max(this.indoor ? 0.4 : 0.8, this.dist * (i - 1) / steps);
+      if (hit(x, y, z)) {
+        allowed = Math.max(cols ? 0.15 : 0.8, this.dist * (i - 1) / steps);
         break;
       }
     }
-    const rate = allowed < this.curDist ? 20 : 3;
+    const rate = allowed < this.curDist ? (cols ? 60 : 20) : 3;
+    if (cols && allowed < this.curDist) this.curDist = allowed;   // drinnen sofort, sonst blitzt die Wand durch
     this.curDist += (allowed - this.curDist) * Math.min(1, dt * rate);
 
     const cam = this.camera;

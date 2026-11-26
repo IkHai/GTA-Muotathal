@@ -19,8 +19,9 @@ export class Colliders {
     }
   }
 
-  addCircle(x, z, r) {
-    const c = { type: 0, x, z, r };
+  // Kreis (Baum, Säule). bottom/top optional: dann nur in dieser Höhe (z.B. Möbel in einem Stockwerk)
+  addCircle(x, z, r, bottom, top) {
+    const c = { type: 0, x, z, r, bottom, top };
     this._insert(c, x - r, x + r, z - r, z + r);
     return c;
   }
@@ -67,6 +68,7 @@ export class Colliders {
     for (const it of this.near(x, z, r + 1)) {
       if (it.dead) continue;   // z.B. umgefahrene Laterne
       if (it.type === 0) {
+        if (it.top !== undefined && (feetY >= it.top - stepHeight || feetY + headroom < it.bottom)) continue;
         const dx = x - it.x, dz = z - it.z;
         const min = r + it.r;
         const d2 = dx * dx + dz * dz;

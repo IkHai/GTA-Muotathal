@@ -219,6 +219,10 @@ function frame(now) {
   follow.update(dt, look, target, currentCar ? 'car' : 'foot', currentCar ? currentCar.heading : 0, currentCar ? currentCar.speed : 0);
 
   minimap.target = bigMap.target = story.objective;
+  const inRoom = interiors.inside === 'club' ? interiors.club : interiors.inside === 'block' ? interiors.block : null;
+  minimap.indoor = inRoom ? inRoom : null;
+  const near = inRoom ? 0.12 : 0.5;
+  if (camera.near !== near) { camera.near = near; camera.updateProjectionMatrix(); }
 
   afterUpdate(now, target);
 

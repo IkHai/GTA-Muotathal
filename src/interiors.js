@@ -30,17 +30,38 @@ const glowMesh = (B) => B.build(new THREE.MeshBasicMaterial({ vertexColors: true
 
 // Ein Stockwerk-Baukasten: alles in lokalen Koordinaten (Gruppe bei O), Kollision in Welt
 class Kit {
-  constructor(O, cols) { this.O = O; this.cols = cols; this.B = new Builder(); this.G = new Builder(); this.extra = []; }
+  constructor(O, cols) { this.O = O; this.cols = cols; this.B = new Builder(); this.G = new Builder(); this.extra = []; this.plan = []; }
+  // für die Karte: Rechteck in Weltkoordinaten mit Höhe
+  mark(x0, z0, x1, z1, y0, y1, kind = 0) { const O = this.O; this.plan.push([O.x + x0, O.z + z0, O.x + x1, O.z + z1, O.y + y0, O.y + y1, kind]); }
+  // runde Hindernisse nur in einem Stockwerk
+  circle(x, z, r, y0, y1) {
+    const O = this.O;
+    this.cols.addCircle(O.x + x, O.z + z, r, O.y + y0, O.y + y1);
+    this.mark(x - r, z - r, x + r, z + r, y0, y1, 2);
+  }
   // fester Block mit Kollision
   solid(x, y, z, sx, sy, sz, color) {
     this.B.box(x, y, z, sx, sy, sz, color);
     const O = this.O;
     this.cols.addBox(O.x + x - sx / 2, O.x + x + sx / 2, O.z + z - sz / 2, O.z + z + sz / 2, O.y + y - sy / 2, O.y + y + sy / 2);
+    this.mark(x - sx / 2, z - sz / 2, x + sx / 2, z + sz / 2, y - sy / 2, y + sy / 2);
   }
   // nur Kollision
   block(x, z, sx, sz, y0, y1) {
     const O = this.O;
     this.cols.addBox(O.x + x - sx / 2, O.x + x + sx / 2, O.z + z - sz / 2, O.z + z + sz / 2, O.y + y0, O.y + y1);
+    this.mark(x - sx / 2, z - sz / 2, x + sx / 2, z + sz / 2, y0, y1);
+  }
+  // Treppenlauf entlang z: begehbare Stufen von (z0, y0) nach (z1, y1)
+  flight(xc, w, z0, z1, y0, y1, n, color = 0x6a5a4a, nose = 0x3a2a20) {
+    const O = this.O, dz = (z1 - z0) / n, rise = (y1 - y0) / n;
+    for (let i = 0; i < n; i++) {
+      const top = y0 + rise * (i + 1), zc = z0 + dz * (i + 0.5), d = Math.abs(dz);
+      this.B.box(xc, top - 0.17, zc, w, 0.34, d, i % 2 ? color : color + 0x060606);
+      this.B.box(xc, top - 0.015, zc + Math.sign(dz) * (d / 2 - 0.03), w, 0.03, 0.06, nose);
+      this.cols.addBox(O.x + xc - w / 2, O.x + xc + w / 2, O.z + Math.min(zc - d / 2, zc + d / 2), O.z + Math.max(zc - d / 2, zc + d / 2), O.y + top - 0.34, O.y + top);
+    }
+    this.mark(xc - w / 2, Math.min(z0, z1), xc + w / 2, Math.max(z0, z1), Math.min(y0, y1), Math.max(y0, y1), 1);
   }
   // Boden (begehbar) und Decke
   floor(x0, x1, z0, z1, y, color) { this.solid((x0 + x1) / 2, y - 0.15, (z0 + z1) / 2, x1 - x0, 0.3, z1 - z0, color); }
@@ -118,16 +139,21 @@ function buildClubInside(club, terrain, cols) {
   const group = new THREE.Group(); group.position.copy(O);
   const k = new Kit(O, cols);
   const hx = 6.75, D = 13.5;
-  const Y1 = 3.4, Y2 = 6.4, TOP = 9.0;
-  const H0 = 3.2, H1 = 2.75, H2 = 2.6;              // Raumhöhen
-  // Hülle: Aussenwände, Böden, Decken
+  // gleiche Stockwerkhöhen wie aussen: EG 4.3 m, 1. OG 3.4 m
+  const Y1 = 4.3, Y2 = 7.7, TOP = 10.4;
+  const H0 = Y1 - 0.3, H1 = Y2 - Y1 - 0.3, H2 = TOP - Y2;     // Raumhöhen bis zur Decke
+  // Treppenhaus hinten links: zwei Läufe pro Stockwerk mit Zwischenpodest hinten
+  const CX0 = -hx, CX1 = -4.15, CM = -5.45;                     // Kern, Mittelwand
+  const ZF = 9.5, ZM = 12.0;                                    // Läufe zwischen ZF und ZM, Podest dahinter
+  const laneA = (CX0 + CM) / 2, laneB = (CM + CX1) / 2, lw = CM - CX0 - 0.14;
+  // Hülle: Böden mit Loch über dem Treppenhaus, Decke oben
   k.floor(-hx, hx, 0, D, 0, 0x2a141a);
-  k.floor(-hx, hx, 0, D, Y1, 0x3a1418);
-  k.floor(-hx, hx, 0, D, Y2, 0x6a6458);
-  k.solid(0, H0 + 0.1, D / 2, hx * 2, 0.2, D, 0x120a0e);           // Decke EG
-  k.solid(0, Y1 + H1 + 0.1, D / 2, hx * 2, 0.2, D, 0x1e0c10);
+  for (const [y, col] of [[Y1, 0x3a1418], [Y2, 0x6a6458]]) {
+    k.solid((CX1 + hx) / 2, y - 0.15, D / 2, hx - CX1, 0.3, D, col);
+    k.solid((CX0 + CX1) / 2, y - 0.15, ZF / 2, CX1 - CX0, 0.3, ZF, col);
+  }
   k.solid(0, TOP + 0.1, D / 2, hx * 2, 0.2, D, 0xb8b2a4);
-  for (const [y0, h, col] of [[0, H0, 0x3a1830], [Y1, H1, 0x5a1a22], [Y2, H2, 0xc8bea4]]) {
+  for (const [y0, h, col] of [[0, Y1, 0x3a1830], [Y1, Y2 - Y1, 0x5a1a22], [Y2, TOP - Y2, 0xc8bea4]]) {
     k.wall('x', -0.08, -hx, hx, y0, h, col, [], 0.16);
     k.wall('x', D + 0.08, -hx, hx, y0, h, col, [], 0.16);
     k.wall('z', -hx - 0.08, 0, D, y0, h, col, [], 0.16);
@@ -154,22 +180,22 @@ function buildClubInside(club, terrain, cols) {
   for (const s of [-1, 1]) k.G.box(0.6 + s * 1.05, 1.2, 0.08, 0.05, 2.4, 0.05, 0xff4f9a);
   k.G.box(0.6, 2.75, 0.1, 0.9, 0.22, 0.04, 0x40ff80);                                   // Notausgang-Schild
   // Bar hinten
-  k.solid(-1.0, 0.55, 12.0, 7.0, 1.1, 0.7, 0x3a1c12);
-  k.B.box(-1.0, 1.13, 11.95, 7.3, 0.06, 0.9, 0x6b3f28);
-  k.G.box(-1.0, 0.08, 11.62, 7.0, 0.04, 0.04, 0xff3a8a);
+  k.solid(-0.6, 0.55, 12.0, 6.0, 1.1, 0.7, 0x3a1c12);
+  k.B.box(-0.6, 1.13, 11.95, 6.3, 0.06, 0.9, 0x6b3f28);
+  k.G.box(-0.6, 0.08, 11.62, 6.0, 0.04, 0.04, 0xff3a8a);
   k.solid(2.6, 0.55, 12.75, 0.7, 1.1, 0.8, 0x3a1c12);                                 // Ecke der Theke
   for (const y of [1.5, 2.0, 2.5]) {
-    k.B.box(-1.0, y, D - 0.2, 7.4, 0.05, 0.3, 0x2a1410);
-    k.G.box(-1.0, y + 0.03, D - 0.06, 7.4, 0.03, 0.03, y === 2.0 ? 0x3ac8ff : 0xff5aa8);
+    k.B.box(-0.6, y, D - 0.2, 6.4, 0.05, 0.3, 0x2a1410);
+    k.G.box(-0.6, y + 0.03, D - 0.06, 6.4, 0.03, 0.03, y === 2.0 ? 0x3ac8ff : 0xff5aa8);
   }
   const bottles = [0x2f6b3a, 0x8a5a1a, 0xc8c8c0, 0x6a1a1a, 0x2a4a7a, 0xd0a030, 0x6a2a6a];
-  for (let i = 0; i < 48; i++) {
-    const x = -4.5 + (i % 16) * 0.46, y = [1.68, 2.18, 2.68][Math.floor(i / 16)];
+  for (let i = 0; i < 39; i++) {
+    const x = -3.4 + (i % 13) * 0.46, y = [1.68, 2.18, 2.68][Math.floor(i / 13)];
     k.B.box(x, y, D - 0.2, 0.09, 0.3 + (i % 3) * 0.04, 0.09, bottles[(i * 5) % bottles.length]);
   }
-  k.B.box(-1.0, 2.1, D - 0.35, 2.4, 1.0, 0.02, 0x5a5a6a);                              // Spiegel
+  k.B.box(-0.6, 2.1, D - 0.35, 2.4, 1.0, 0.02, 0x5a5a6a);                              // Spiegel
   for (let i = 0; i < 6; i++) {
-    const x = -4.0 + i * 1.15;
+    const x = -3.2 + i * 1.1;
     k.B.shape(new THREE.CylinderGeometry(0.04, 0.04, 0.75, 6), x, 0.38, 11.25, 1, 1, 1, 0x888888);
     k.B.shape(new THREE.CylinderGeometry(0.22, 0.2, 0.1, 10), x, 0.78, 11.25, 1, 1, 1, 0x8a1a2a);
   }
@@ -179,7 +205,7 @@ function buildClubInside(club, terrain, cols) {
   k.B.shape(new THREE.CylinderGeometry(sr - 0.1, sr - 0.1, 0.02, 32), sx, 0.46, sz, 1, 1, 1, 0x3a2a34);
   k.G.shape(new THREE.TorusGeometry(sr + 0.02, 0.035, 6, 40), sx, 0.42, sz, 1, 1, 1, 0xff3a9a, 0, Math.PI / 2);
   k.B.shape(new THREE.CylinderGeometry(0.035, 0.035, H0 - 0.45, 8), sx, 0.45 + (H0 - 0.45) / 2, sz, 1, 1, 1, 0xe0e0e8);
-  cols.addCircle(O.x + sx, O.z + sz, sr);
+  k.circle(sx, sz, sr, 0, 0.45);
   const cones = [];
   for (const [cx, cz, col] of [[-1.6, 4.8, 0xff3aa8], [2.2, 4.8, 0xb04aff], [0.3, 8.6, 0xff6ac0]]) {
     k.B.box(cx, H0 - 0.15, cz, 0.3, 0.3, 0.3, 0x111111);
@@ -195,7 +221,7 @@ function buildClubInside(club, terrain, cols) {
   k.G.shape(new THREE.CylinderGeometry(1.2, 1.2, 0.01, 24), sx, 0.475, sz, 1, 1, 1, 0x6a2a52);
   // Diskokugel
   const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(0.25, 1), new THREE.MeshBasicMaterial({ color: 0xd0d0e0 }));
-  ball.position.set(-2.6, H0 - 0.55, 9.0);
+  ball.position.set(2.2, H0 - 0.6, 3.2);
   k.extra.push(ball);
   // Nischen mit Sofas links und rechts
   const booth = (x, z, side) => {
@@ -206,7 +232,7 @@ function buildClubInside(club, terrain, cols) {
     tableWithCandle(k, x + side * 1.15, z, 0, 0.45);
     k.G.box(x - side * 0.38, 2.0, z, 0.04, 0.3, 0.2, 0xffb070);           // Wandlampe
   };
-  booth(-hx + 0.45, 3.2, -1); booth(-hx + 0.45, 8.0, -1);
+  booth(-hx + 0.45, 3.0, -1); booth(-hx + 0.45, 6.3, -1);
   booth(hx - 0.45, 5.6, 1); booth(hx - 0.45, 9.4, 1);
   tableWithCandle(k, -2.8, 3.4); tableWithCandle(k, -3.0, 9.0); tableWithCandle(k, 3.5, 2.6 + 1.6);
   for (const [x, z] of [[-2.8, 2.6], [-2.8, 4.2], [-3.0, 8.2], [-3.0, 9.8]]) {
@@ -219,10 +245,33 @@ function buildClubInside(club, terrain, cols) {
   k.solid(6.2, 0.22, 0.7, 0.45, 0.44, 0.6, 0xe8e8e8); k.B.box(6.45, 0.7, 0.7, 0.15, 0.6, 0.5, 0xe8e8e8);   // Toilette
   k.solid(4.4, 0.85, 0.3, 0.6, 0.15, 0.45, 0xe0e0e0); k.B.box(4.4, 1.6, 0.04, 0.6, 0.8, 0.02, 0x7a8a9a);  // Lavabo, Spiegel
   k.picture(plainTex('WC', '#1a1a1a', '#ffffff'), 5.3, 2.5, 3.6 + 0.09, 0.5, 0.2, 0);
-  // Treppe nach oben (hinten links) und Personal-Tür
-  k.door(-hx, 0, 12.5, 1, 0, 0x4a2a18);
-  k.picture(plainTex('PRIVAT', '#2a0a10', '#ff9ac4'), -hx + 0.1, 2.45, 12.5, 0.7, 0.18, Math.PI / 2);
+  // Personal-Tür hinten rechts
   k.door(5.2, 0, D, 0, -1, 0x3a3a3a);
+
+  // ===== Treppenhaus =====
+  const stairWall = 0x4a3a34, step = 0x5a4a3e;
+  k.wall('z', CX1, ZF, D, 0, Y1, stairWall, [], 0.14);                 // EG: Kern zum Raum hin
+  k.wall('z', CX1, 7.6, D, Y1, TOP - Y1, stairWall, [], 0.14);          // oben: Kern zu den Zimmern
+  k.wall('z', CM, ZF, ZM, 0, TOP, stairWall, [], 0.14);                 // Mittelwand zwischen den Läufen
+  // EG -> 1. OG
+  k.flight(laneA, lw, ZF, ZM, 0, Y1 / 2, 12, step);
+  k.solid((CX0 + CX1) / 2, Y1 / 2 - 0.15, (ZM + D) / 2, CX1 - CX0, 0.3, D - ZM, step);   // Zwischenpodest (Aussentür)
+  k.flight(laneB, lw, ZM, ZF, Y1 / 2, Y1, 12, step);
+  k.solid(laneB, 0.95, (ZF + ZM) / 2, lw, 1.9, ZM - ZF, stairWall);    // Abstellraum unter dem Lauf
+  // 1. OG -> 2. OG
+  const Ym = (Y1 + Y2) / 2;
+  k.flight(laneA, lw, ZF, ZM, Y1, Ym, 10, step);
+  k.solid((CX0 + CX1) / 2, Ym - 0.15, (ZM + D) / 2, CX1 - CX0, 0.3, D - ZM, step);
+  k.flight(laneB, lw, ZM, ZF, Ym, Y2, 10, step);
+  // Geländer oben am Treppenloch
+  k.solid(laneA, Y2 + 0.5, ZF + 0.05, lw, 1.0, 0.08, 0x2a2a2a);
+  // Holztür zur Aussentreppe auf dem Zwischenpodest, Lampen, Schilder
+  k.door(-hx, Y1 / 2, (ZM + D) / 2, 1, 0, 0x6a4424);
+  for (const y of [Y1 / 2, Ym]) k.G.box(CX1 - 0.1, y + 2.0, (ZM + D) / 2, 0.06, 0.25, 0.4, 0xffe0b0);
+  k.G.box(CM, Y1 - 0.5, ZF - 0.6, 0.6, 0.08, 0.3, 0xfff0d0);
+  k.picture(plainTex('1. OG · VIP', '#1a0a10', '#ffd0e0'), CX1 - 0.09, Y1 + 2.4, 8.6, 0.8, 0.2, -Math.PI / 2);
+  k.picture(plainTex('2. OG · Büro', '#2a2a2a', '#ffffff'), CX1 - 0.09, Y2 + 2.0, 8.6, 0.8, 0.2, -Math.PI / 2);
+  k.picture(plainTex('PRIVAT ↑', '#2a0a10', '#ff9ac4'), (CX0 + CX1) / 2, 2.9, ZF - 0.02, 0.8, 0.2, Math.PI);
   // Neonfigur und Plakate
   k.picture(neonFigureTex(), hx - 0.12, 2.2, 7.6, 2.4, 1.2, -Math.PI / 2, true);
   k.picture(posterTex(), -hx + 0.1, 1.8, 5.6, 0.7, 1.0, Math.PI / 2, true);
@@ -231,7 +280,7 @@ function buildClubInside(club, terrain, cols) {
   // ===== 1. OG: VIP-Flur und vier VIP-Zimmer =====
   const cz0 = 5.9, cz1 = 7.6;
   k.wall('x', cz0, -hx, hx, Y1, H1, 0x5a1a22, [{ c: -3.4, w: 1.0 }, { c: 2.6, w: 1.0 }], 0.14, 0x2a140e);
-  k.wall('x', cz1, -hx, hx, Y1, H1, 0x5a1a22, [{ c: -3.0, w: 1.0 }, { c: 2.6, w: 1.0 }], 0.14, 0x2a140e);
+  k.wall('x', cz1, -hx, hx, Y1, H1, 0x5a1a22, [{ c: (CX0 + CX1) / 2, w: 2.3, h: H1 - 0.2 }, { c: -2.0, w: 1.0 }, { c: 2.6, w: 1.0 }], 0.14, 0x2a140e);
   k.wall('z', 0, 0, cz0, Y1, H1, 0x4a141c, [], 0.14);
   k.wall('z', 0, cz1, D, Y1, H1, 0x4a141c, [], 0.14);
   k.B.box(0, Y1 + 0.01, (cz0 + cz1) / 2, hx * 2 - 0.4, 0.02, 0.9, 0x8a1424);           // roter Läufer
@@ -241,16 +290,11 @@ function buildClubInside(club, terrain, cols) {
   }
   k.picture(posterTex(), -1.2, Y1 + 1.5, cz1 - 0.09, 0.6, 0.9, Math.PI, true);
   k.picture(posterTex(), 0.8, Y1 + 1.5, cz0 + 0.09, 0.6, 0.9, 0, true);
-  k.door(-hx, Y1, (cz0 + cz1) / 2, 1, 0, 0x6a4424);                                     // Seitentür zur Aussentreppe
-  k.door(5.6, Y1, cz1, 0, -1, 0x3a2418);                                               // Treppe nach unten
-  k.door(5.6, Y1, cz0, 0, 1, 0x3a2418);                                                // Treppe nach oben
-  k.picture(plainTex('↓ EG', '#1a0a10', '#ffd0e0'), 5.6, Y1 + 2.35, cz1 - 0.1, 0.5, 0.14, Math.PI);
-  k.picture(plainTex('↑ 2. OG', '#1a0a10', '#ffd0e0'), 5.6, Y1 + 2.35, cz0 + 0.1, 0.5, 0.14, 0);
   const vipBed = (x, z, round, ry = 0) => {
     if (round) {
       k.B.shape(new THREE.CylinderGeometry(1.2, 1.2, 0.45, 24), x, Y1 + 0.23, z, 1, 1, 1, 0x7a1424);
       k.B.shape(new THREE.CylinderGeometry(1.15, 1.15, 0.08, 24), x, Y1 + 0.49, z, 1, 1, 1, 0xa01a30);
-      cols.addCircle(O.x + x, O.z + z, 1.2);
+      k.circle(x, z, 1.2, Y1, Y1 + 0.5);
     } else {
       k.solid(x, Y1 + 0.25, z, 2.0, 0.5, 2.2, 0x7a1424);
       k.B.box(x, Y1 + 0.52, z + 0.2, 1.9, 0.06, 1.7, 0xa01a30);
@@ -266,7 +310,7 @@ function buildClubInside(club, terrain, cols) {
   vipBed(-4.0, 3.6, true);
   k.B.shape(new THREE.CylinderGeometry(1.0, 1.0, 0.6, 24), -1.4, Y1 + 0.3, 1.5, 1, 1, 1, 0x3a2a30);
   k.G.shape(new THREE.CylinderGeometry(0.88, 0.88, 0.02, 24), -1.4, Y1 + 0.62, 1.5, 1, 1, 1, 0x9a4aff);
-  cols.addCircle(O.x - 1.4, O.z + 1.5, 1.0);
+  k.circle(-1.4, 1.5, 1.0, Y1, Y1 + 0.6);
   win(-3.6, Y1 + 1.5, 0.05, 0, 0x8a1424);
   // vorne rechts: Bett, Sessel, Spiegel
   vipBed(3.6, 3.4, false);
@@ -274,19 +318,17 @@ function buildClubInside(club, terrain, cols) {
   k.B.box(6.6, Y1 + 1.5, 3.4, 0.03, 1.6, 1.0, 0x6a6a7a);
   win(3.6, Y1 + 1.6, 0.05, 0, 0x8a1424);
   // hinten links und rechts
-  vipBed(-3.6, 11.2, false); vipBed(3.4, 11.0, true);
+  vipBed(-2.05, 11.4, false); vipBed(3.4, 11.0, true);
   k.G.shape(new THREE.TorusGeometry(0.9, 0.03, 6, 24), 3.4, Y1 + H1 - 0.06, 11.0, 1, 1, 1, 0xff3a6a, 0, Math.PI / 2);
-  k.G.box(-3.6, Y1 + H1 - 0.06, 10.8, 2.2, 0.04, 0.04, 0xff3a6a);
-  for (const x of [-hx + 0.3, hx - 0.3]) k.B.shape(new THREE.CylinderGeometry(0.22, 0.18, 0.5, 8), x, Y1 + 0.25, D - 0.4, 1, 1, 1, 0x4a4a4a);   // Pflanzen
-  for (const x of [-hx + 0.3, hx - 0.3]) for (let i = 0; i < 5; i++) k.B.box(x, Y1 + 0.9, D - 0.4, 0.7, 0.04, 0.16, 0x2e5a2a, i * 0.6);
+  k.G.box(-2.05, Y1 + H1 - 0.06, 10.8, 2.2, 0.04, 0.04, 0xff3a6a);
+  for (const x of [CX1 + 0.4, hx - 0.3]) k.B.shape(new THREE.CylinderGeometry(0.22, 0.18, 0.5, 8), x, Y1 + 0.25, D - 0.4, 1, 1, 1, 0x4a4a4a);   // Pflanzen
+  for (const x of [CX1 + 0.4, hx - 0.3]) for (let i = 0; i < 5; i++) k.B.box(x, Y1 + 0.9, D - 0.4, 0.7, 0.04, 0.16, 0x2e5a2a, i * 0.6);
 
   // ===== 2. OG: Office, Garderobe, Lager, WC =====
   k.wall('x', cz0, -hx, hx, Y2, H2, 0xb8ae94, [{ c: -3.4, w: 1.0 }, { c: 2.6, w: 1.0 }], 0.14, 0x6a5a48);
-  k.wall('x', cz1, -hx, hx, Y2, H2, 0xb8ae94, [{ c: -3.0, w: 1.0 }, { c: 3.0, w: 0.9 }], 0.14, 0x6a5a48);
+  k.wall('x', cz1, -hx, hx, Y2, H2, 0xb8ae94, [{ c: (CX0 + CX1) / 2, w: 2.3 }, { c: -2.0, w: 1.0 }, { c: 3.0, w: 0.9 }], 0.14, 0x6a5a48);
   k.wall('z', 0, 0, cz0, Y2, H2, 0xa89e86, [], 0.14);
   k.wall('z', 1.6, cz1, D, Y2, H2, 0xa89e86, [], 0.14);
-  k.door(hx, Y2, (cz0 + cz1) / 2, -1, 0, 0x3a2418);                                    // Treppe nach unten
-  k.picture(plainTex('↓ 1. OG', '#2a2a2a', '#ffffff'), hx - 0.1, Y2 + 2.3, (cz0 + cz1) / 2, 0.5, 0.14, -Math.PI / 2);
   k.G.box(0, Y2 + H2 - 0.05, (cz0 + cz1) / 2, 2.4, 0.05, 0.2, 0xe8f0ff);              // Neonröhre
   // Office (vorne links)
   k.solid(-3.4, Y2 + 0.4, 2.4, 2.2, 0.8, 1.0, 0x4a2a16);                               // Schreibtisch
@@ -312,21 +354,20 @@ function buildClubInside(club, terrain, cols) {
   k.B.box(1.6, Y2 + 1.6, 4.6, 1.6, 0.04, 0.04, 0x9a9a9a);
   for (let i = 0; i < 6; i++) k.B.box(1.0 + i * 0.22, Y2 + 1.1, 4.6, 0.05, 0.9, 0.4, [0xc02a5a, 0x2a2a2a, 0xd0b040, 0x6a2a9a][i % 4]);
   // Lager (hinten links)
-  for (const z of [8.3, 12.9]) for (let x = -6.0; x <= -1.2; x += 1.6) {
+  for (const z of [8.3, 12.9]) for (const x of [-3.3, -1.7, -0.1]) {
     k.block(x, z, 1.4, 0.5, Y2, Y2 + 2.2);
     for (const y of [0.1, 0.8, 1.5, 2.1]) k.B.box(x, Y2 + y, z, 1.4, 0.04, 0.5, 0x7a7a7a);
     for (const s of [-1, 1]) k.B.box(x + s * 0.68, Y2 + 1.1, z, 0.04, 2.2, 0.5, 0x5a5a5a);
     for (let j = 0; j < 3; j++) k.B.box(x - 0.4 + j * 0.42, Y2 + 0.3 + (j % 2) * 0.7, z, 0.36, 0.34, 0.4, [0xb08a5a, 0xe8e8e0, 0x9a7a4a][j]);
   }
-  for (const [x, z] of [[-4.2, 10.5], [-3.6, 10.9], [-2.2, 10.4]]) k.solid(x, Y2 + 0.3, z, 0.6, 0.6, 0.6, 0x8a6a40);
-  k.B.shape(new THREE.CylinderGeometry(0.25, 0.25, 0.6, 10), -5.6, Y2 + 0.3, 10.6, 1, 1, 1, 0x9a9aa0);
-  k.G.box(-3.6, Y2 + H2 - 0.05, 10.6, 1.4, 0.05, 0.15, 0xe8f0ff);
+  for (const [x, z] of [[-3.3, 10.5], [-2.7, 10.9], [-1.0, 10.4]]) k.solid(x, Y2 + 0.3, z, 0.6, 0.6, 0.6, 0x8a6a40);
+  k.B.shape(new THREE.CylinderGeometry(0.25, 0.25, 0.6, 10), 0.9, Y2 + 0.3, 10.6, 1, 1, 1, 0x9a9aa0);
+  k.G.box(-1.3, Y2 + H2 - 0.05, 10.6, 1.4, 0.05, 0.15, 0xe8f0ff);
   // WC Personal (hinten rechts)
   k.solid(4.6, Y2 + 0.22, 12.8, 0.45, 0.44, 0.6, 0xe8e8e8);
   k.solid(2.4, Y2 + 0.85, 13.2, 0.6, 0.15, 0.4, 0xe0e0e0);
   k.B.box(3.6, Y2 + 0.01, 10.6, 5.6, 0.02, 5.8, 0x8a9090);
 
-  k.done(group);
   // Bruno steht vor der Bar
   const bruno = makeCharacter({ jacket: 0x5a1020, shirt: 0xe8dcc8, pants: 0x1e1e22, hair: 0x101010, skin: 0xc08a6a, shoe: 0x111111, wide: 1.25 });
   const bf = bruno.part;
@@ -337,17 +378,17 @@ function buildClubInside(club, terrain, cols) {
   bruno.group.rotation.y = Math.PI;
   bruno.group.userData.fig = bruno;
   group.add(bruno.group);
-  cols.addCircle(O.x - 1.0, O.z + 10.2, 0.35);
+  k.circle(-1.0, 10.2, 0.35, 0, 1.8);
+  k.done(group);
 
   const W = (x, y, z) => new THREE.Vector3(O.x + x, O.y + y, O.z + z);
   return {
-    group, O, ball, cones, bruno: bruno.group,
+    group, O, ball, cones, bruno: bruno.group, plan: k.plan,
+    floorName: (y) => (y - O.y < Y1 - 1.0 ? 'EG' : y - O.y < Y2 - 0.8 ? '1. OG' : '2. OG'),
     spots: {
       front: W(0.6, 0, 0.9), frontIn: W(0.6, 0, 1.6),
-      egUp: W(-hx + 0.8, 0, 12.5), egArrive: W(-hx + 1.2, 0, 11.6),
-      side: W(-hx + 0.7, Y1, (cz0 + cz1) / 2), sideIn: W(-hx + 1.2, Y1, (cz0 + cz1) / 2),
-      ogDown: W(5.6, Y1, cz1 - 0.55), ogUp: W(5.6, Y1, cz0 + 0.55),
-      og2Down: W(hx - 0.8, Y2, (cz0 + cz1) / 2), og2Arrive: W(hx - 1.3, Y2, (cz0 + cz1) / 2),
+      side: W(-hx + 0.55, Y1 / 2, (ZM + D) / 2), sideIn: W(-hx + 1.0, Y1 / 2, (ZM + D) / 2),
+      stairs: W(laneA, 0, ZF - 0.6), og1: W(-5.4, Y1, 8.4), og2: W(-5.4, Y2, 8.4),
       bruno: W(-1.0, 0, 9.2), lars: W(-0.75, 0, 8.7),
       wide: W(3.6, 2.4, 4.2),
     },
@@ -358,41 +399,68 @@ function buildClubInside(club, terrain, cols) {
 function buildBlockInside(home, terrain, cols) {
   const O = new THREE.Vector3(home.x, terrain.heightAt(home.x, home.z) - DEPTH, home.z);
   const group = new THREE.Group(); group.position.copy(O);
-  const k = new Kit(O, cols);
-  // Treppenhaus (EG)
-  const hx = 3, D = 5.5, H = 3.0;
+  let k = new Kit(O, cols);
+  // Treppenhaus über 3 Stockwerke: Läufe rechts (x 0..3), Vorplätze links, Lars wohnt im 3. Stock
+  const hx = 3, D = 5.5, FHs = 2.9, TOPB = 3 * FHs + 2.75;
+  const ZF = 1.6, ZM = 4.0, CM = 1.5;
+  const laneA = (0 + CM) / 2, laneB = (CM + hx) / 2, lw = CM - 0.14;
+  const wallC = 0xcfc8b4, stepC = 0x8a847a;
   k.floor(-hx, hx, 0, D, 0, 0x8a8478);
-  for (let x = -hx + 0.3; x < hx; x += 0.6) for (let z = 0.3; z < D; z += 0.6) if (((x + z) * 1.67 | 0) % 2) k.B.box(x, 0.005, z, 0.58, 0.01, 0.58, 0x6e685e);
-  k.solid(0, H + 0.1, D / 2, hx * 2, 0.2, D, 0xd8d2c4);
-  for (const [axis, f, a0, a1] of [['x', -0.08, -hx, hx], ['x', D + 0.08, -hx, hx], ['z', -hx - 0.08, 0, D], ['z', hx + 0.08, 0, D]]) {
-    k.wall(axis, f, a0, a1, 0, H, 0xcfc8b4, [], 0.16);
+  for (let x = -hx + 0.3; x < 0; x += 0.6) for (let z = 0.3; z < D; z += 0.6) if (((x + z) * 1.67 | 0) % 2) k.B.box(x, 0.005, z, 0.58, 0.01, 0.58, 0x6e685e);
+  for (let f = 1; f <= 3; f++) {
+    const y = f * FHs;
+    k.solid(-hx / 2, y - 0.15, D / 2, hx, 0.3, D, 0x9a948a);                 // Vorplatz links
+    k.solid(hx / 2, y - 0.15, ZF / 2, hx, 0.3, ZF, 0x9a948a);                // Vorplatz vor den Läufen
   }
-  for (const [x, z, sx, sz] of [[0, 0.02, hx * 2, 0.03], [0, D - 0.02, hx * 2, 0.03], [-hx + 0.02, D / 2, 0.03, D], [hx - 0.02, D / 2, 0.03, D]]) k.B.box(x, 0.7, z, sx, 1.4, sz, 0x5a7a62);
+  k.solid(0, TOPB + 0.1, D / 2, hx * 2, 0.2, D, 0xd8d2c4);
+  for (const [axis, f, a0, a1] of [['x', -0.08, -hx, hx], ['x', D + 0.08, -hx, hx], ['z', hx + 0.08, 0, D]]) k.wall(axis, f, a0, a1, 0, TOPB, wallC, [], 0.16);
+  // linke Wand: im 3. Stock die Tür zu Lars' Wohnung
+  k.wall('z', -hx - 0.08, 0, D, 0, 3 * FHs, wallC, [], 0.16);
+  k.wall('z', -hx - 0.08, 0, D, 3 * FHs, TOPB - 3 * FHs, wallC, [{ c: 0.85, w: 0.95 }], 0.16);
+  k.wall('z', 0, ZF, D, 0, TOPB, wallC, [], 0.14);                         // Wand zwischen Vorplatz und Läufen
+  k.wall('z', CM, ZF, ZM, 0, TOPB, wallC, [], 0.14);                       // Mittelwand
+  for (let f = 0; f <= 3; f++) for (const [x, z, sx, sz] of [[-hx / 2, 0.02, hx, 0.03], [-hx + 0.02, D / 2, 0.03, D], [-0.09, (ZF + D) / 2, 0.03, D - ZF]]) k.B.box(x, f * FHs + 0.7, z, sx, 1.4, sz, 0x5a7a62);
+  for (let f = 0; f < 3; f++) {
+    const y = f * FHs, ym = y + FHs / 2;
+    k.flight(laneA, lw, ZF, ZM, y, ym, 8, stepC, 0x5a544a);
+    k.solid(hx / 2, ym - 0.15, (ZM + D) / 2, hx, 0.3, D - ZM, 0x9a948a);   // Zwischenpodest
+    k.flight(laneB, lw, ZM, ZF, ym, y + FHs, 8, stepC, 0x5a544a);
+    k.G.shape(new THREE.SphereGeometry(0.09, 8, 6), -1.5, y + FHs - 0.55, 2.6, 1, 1, 1, 0xfff0c0);
+    k.G.box(hx - 0.1, ym + 1.9, (ZM + D) / 2, 0.05, 0.2, 0.3, 0xfff0c0);
+  }
+  k.solid(laneB, 0.75, (ZF + ZM) / 2, lw, 1.5, ZM - ZF, 0x8a847a);          // unter dem ersten Lauf
+  k.solid(laneA, 3 * FHs + 0.5, ZF + 0.05, lw, 1.0, 0.06, 0x3a2a1a);         // Geländer oben
   // Haustür (Glas)
-  k.B.box(0, 1.15, 0.04, 1.2, 2.3, 0.05, 0x6a5a40);
-  k.B.box(0, 1.4, 0.07, 0.8, 1.4, 0.02, 0x9ab0b8);
-  // Briefkästen
-  for (let i = 0; i < 8; i++) k.B.box(-hx + 0.05, 1.2 + Math.floor(i / 4) * 0.35, 1.2 + (i % 4) * 0.42, 0.1, 0.3, 0.38, 0x8a7a50);
-  // Treppe nach oben (Kulisse, ab der vierten Stufe versperrt)
-  for (let i = 0; i < 14; i++) k.B.box(2.2, 0.1 + i * 0.2, 1.8 + i * 0.26, 1.4, 0.2, 0.26, 0x9a948a);
-  for (let i = 0; i < 14; i++) k.B.box(2.2, i * 0.1, 1.8 + i * 0.26, 1.4, i * 0.2, 0.26, 0x8a847a);
-  k.block(2.2, 3.6, 1.4, 3.8, 0, 3);
-  k.B.shape(new THREE.BoxGeometry(0.05, 0.05, 4.2), 1.5, 1.9, 3.6, 1, 1, 1, 0x3a2a1a, 0, -Math.atan2(2.8, 3.64), 0);
-  k.B.box(-1.5, 0.45, D - 0.1, 1.2, 0.7, 0.12, 0xe8e8e0);                               // Heizkörper
-  k.G.shape(new THREE.SphereGeometry(0.1, 8, 6), 0, H - 0.4, 2.6, 1, 1, 1, 0xfff0c0);
-  k.B.box(0, H - 0.2, 2.6, 0.02, 0.3, 0.02, 0x222222);
-  k.picture(plainTex('3. Stock: Kasslov', '#f0ece0', '#202020'), 2.2, 1.6, 1.7 - 0.03, 0.9, 0.22, Math.PI);
+  k.B.box(-1.2, 1.15, 0.04, 1.2, 2.3, 0.05, 0x6a5a40);
+  k.B.box(-1.2, 1.4, 0.07, 0.8, 1.4, 0.02, 0x9ab0b8);
+  // Briefkästen, Heizkörper
+  for (let i = 0; i < 8; i++) k.B.box(-hx + 0.05, 1.2 + Math.floor(i / 4) * 0.35, 2.2 + (i % 4) * 0.42, 0.1, 0.3, 0.38, 0x8a7a50);
+  k.B.box(-1.5, 0.45, D - 0.1, 1.2, 0.7, 0.12, 0xe8e8e0);
+  // Wohnungstüren der Nachbarn (zu) und Namensschilder
+  for (const [f, name] of [[1, 'Bürgler'], [2, 'Gwerder']]) {
+    k.door(-hx, f * FHs, 0.85, 1, 0, 0x7a6a50);
+    k.picture(plainTex(name, '#f0ece0', '#202020'), -hx + 0.1, f * FHs + 1.55, 1.6, 0.5, 0.13, Math.PI / 2);
+  }
+  k.picture(plainTex('Kasslov', '#f0ece0', '#202020'), -hx + 0.1, 3 * FHs + 1.55, 1.6, 0.5, 0.13, Math.PI / 2);
+  k.picture(plainTex('3. Stock: Kasslov', '#f0ece0', '#202020'), -0.08, 1.6, 2.4, 0.9, 0.22, -Math.PI / 2);
 
-  // Wohnung (3. Stock)
-  const FY = 8.7, fx = 3.5, FD = 6, FH = 2.6;
+  k.solid(-hx - 0.08, 3 * FHs - 0.15, 0.85, 0.24, 0.3, 0.95, 0x6a5a48);   // Schwelle zur Wohnung
+  // Wohnung (3. Stock), links an das Treppenhaus angebaut
+  k.done(group);
+  const FY = 3 * FHs, fx = 3.5, FD = 6, FH = 2.6, FOX = -hx - fx - 0.16;
+  const Of = O.clone().add(new THREE.Vector3(FOX, 0, 0));
+  const fg = new THREE.Group(); fg.position.set(FOX, 0, 0); group.add(fg);
+  const plan0 = k.plan;
+  k = new Kit(Of, cols);
   k.floor(-fx, fx, 0, FD, FY, 0x5a4a3a);
   k.solid(0, FY + FH + 0.1, FD / 2, fx * 2, 0.2, FD, 0xd0c8b0);
-  for (const [axis, f, a0, a1] of [['x', -0.08, -fx, fx], ['x', FD + 0.08, -fx, fx], ['z', -fx - 0.08, 0, FD], ['z', fx + 0.08, 0, FD]]) {
+  for (const [axis, f, a0, a1] of [['x', -0.08, -fx, fx], ['x', FD + 0.08, -fx, fx], ['z', -fx - 0.08, 0, FD]]) {
     k.wall(axis, f, a0, a1, FY, FH, 0x9a8c64, [], 0.16);
   }
+  // Wand zum Treppenhaus (innen vor dessen Wand) mit der Wohnungstür
+  k.wall('z', fx - 0.03, 0, FD, FY, FH, 0x9a8c64, [{ c: 0.85, w: 0.95, frame: 0x4a3420 }], 0.06);
   // Wasserflecken an der Tapete
-  for (const [x, z, s] of [[-3.45, 4.6, 0.8], [3.45, 1.2, 0.6], [1.5, 5.95, 0.7]]) k.B.box(x, FY + FH - 0.3, z, x === 1.5 ? s : 0.02, 0.4, x === 1.5 ? 0.02 : s, 0x6a6040);
-  k.door(-2.5, FY, 0, 0, 1, 0x7a6a50);
+  for (const [x, z, s] of [[-3.45, 4.6, 0.8], [3.43, 2.6, 0.6], [1.5, 5.95, 0.7]]) k.B.box(x, FY + FH - 0.3, z, x === 1.5 ? s : 0.02, 0.4, x === 1.5 ? 0.02 : s, 0x6a6040);
   // Bett (Speicherpunkt) hinten links
   k.solid(-2.4, FY + 0.22, 5.1, 2.0, 0.44, 1.0, 0x6a5a48);
   k.B.box(-2.5, FY + 0.48, 5.1, 1.7, 0.1, 0.95, 0x5a6a8a);
@@ -402,12 +470,12 @@ function buildBlockInside(home, terrain, cols) {
   k.G.box(-1.0, FY + 0.75, 5.6, 0.18, 0.25, 0.18, 0xffd890);
   k.B.box(-1.1, FY + 0.62, 5.45, 0.14, 0.03, 0.14, 0x3a3a3a);                            // Aschenbecher
   // Küchenzeile rechts
-  k.solid(fx - 0.32, FY + 0.45, 1.8, 0.6, 0.9, 2.4, 0xc8c0a8);
-  k.B.box(fx - 0.32, FY + 0.92, 1.8, 0.64, 0.04, 2.44, 0x8a7a60);
-  for (const z of [1.0, 1.4]) k.B.shape(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 12), fx - 0.32, FY + 0.95, z, 1, 1, 1, 0x222222);
-  k.B.box(fx - 0.32, FY + 0.92, 2.5, 0.4, 0.06, 0.5, 0x8a9098);
-  k.B.box(fx - 0.2, FY + 1.9, 1.8, 0.35, 0.6, 2.4, 0xb8b098);
-  k.solid(fx - 0.35, FY + 0.85, 3.5, 0.65, 1.7, 0.65, 0xe8e8e0);                        // Kühlschrank
+  k.solid(fx - 0.36, FY + 0.45, 2.6, 0.6, 0.9, 2.4, 0xc8c0a8);
+  k.B.box(fx - 0.36, FY + 0.92, 2.6, 0.64, 0.04, 2.44, 0x8a7a60);
+  for (const z of [1.8, 2.2]) k.B.shape(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 12), fx - 0.36, FY + 0.95, z, 1, 1, 1, 0x222222);
+  k.B.box(fx - 0.36, FY + 0.92, 3.3, 0.4, 0.06, 0.5, 0x8a9098);
+  k.B.box(fx - 0.24, FY + 1.9, 2.6, 0.35, 0.6, 2.4, 0xb8b098);
+  k.solid(fx - 0.39, FY + 0.85, 4.3, 0.65, 1.7, 0.65, 0xe8e8e0);                        // Kühlschrank
   // Tisch und Stuhl
   k.solid(1.2, FY + 0.38, 3.8, 0.9, 0.76, 0.7, 0x7a5a3a);
   k.B.box(1.2, FY + 0.79, 3.8, 0.4, 0.06, 0.3, 0xd0c8b0);
@@ -427,17 +495,22 @@ function buildBlockInside(home, terrain, cols) {
   k.B.box(-1.6, FY + 0.01, 2.6, 2.0, 0.02, 1.6, 0x6a2a2a);
   k.G.shape(new THREE.SphereGeometry(0.08, 8, 6), 0, FY + FH - 0.5, 3, 1, 1, 1, 0xfff0c0);
   k.B.box(0, FY + FH - 0.25, 3, 0.02, 0.4, 0.02, 0x222222);
-  k.door(fx, FY, 5.2, -1, 0, 0x8a7a60);                                                  // Bad
-  k.done(group);
+  k.door(fx - 0.06, FY, 5.3, -1, 0, 0x8a7a60);                                           // Bad
+  k.done(fg);
 
   const W = (x, y, z) => new THREE.Vector3(O.x + x, O.y + y, O.z + z);
   return {
-    group, O,
+    group, O, plan: plan0.concat(k.plan),
+    floorName: (y, x) => {
+      const r = y - O.y;
+      if (x !== undefined && x < O.x - hx && r > FY - 1) return 'Wohnung Kasslov';
+      const f = Math.round(r / FHs);
+      return f <= 0 ? 'Treppenhaus EG' : `Treppenhaus ${f}. Stock`;
+    },
     spots: {
-      front: W(0, 0, 0.9), frontIn: W(-0.4, 0, 2.6),
-      up: W(2.2, 0, 1.2), hallArrive: W(1.2, 0, 1.4),
-      flatDoor: W(-2.5, FY, 0.8), flatArrive: W(-1.9, FY, 1.2),
-      bed: W(-2.2, FY, 4.2),
+      front: W(-1.2, 0, 0.9), frontIn: W(-1.2, 0, 2.4),
+      flat: W(FOX + 2.2, FY, 0.9),
+      bed: W(FOX - 2.2, FY, 4.2),
     },
   };
 }
@@ -459,13 +532,9 @@ export class Interiors {
       const outH = out.heading + Math.PI;
       this.points.push(
         { where: null, p: { x: out.entry.x, z: out.entry.z }, r: 1.7, label: 'Betreten', go: () => this.go('club', S.frontIn, 0, 'club') },
-        { where: null, p: out.upperDoor, r: 1.2, y: out.upperDoor.y, label: 'Betreten', go: () => this.go('club', S.sideIn, Math.PI / 2) },
+        { where: null, p: out.upperDoor, r: 1.2, y: out.upperDoor.y, label: 'Betreten', go: () => this.go('club', S.sideIn, Math.PI, 'club') },
         { where: 'club', p: S.front, r: 1.1, label: 'Hinaus', go: () => this.go(null, out.door, outH, null, out.heading) },
-        { where: 'club', p: S.egUp, r: 1.0, label: 'Nach oben', go: () => this.go('club', S.ogDown.clone().setZ(S.ogDown.z - 0.4), -Math.PI / 2) },
-        { where: 'club', p: S.ogDown, r: 0.8, label: 'Nach unten', go: () => this.go('club', S.egArrive, Math.PI / 2) },
-        { where: 'club', p: S.ogUp, r: 0.8, label: 'Nach oben', go: () => this.go('club', S.og2Arrive, -Math.PI / 2) },
-        { where: 'club', p: S.side, r: 1.0, label: 'Hinaus', go: () => this.go(null, { x: out.upperDoor.x, z: out.upperDoor.z, y: out.upperDoor.y }, outH) },
-        { where: 'club', p: S.og2Down, r: 1.0, label: 'Nach unten', go: () => this.go('club', S.ogUp.clone().setZ(S.ogUp.z + 0.35), -Math.PI / 2) },
+        { where: 'club', p: S.side, r: 0.9, label: 'Hinaus', go: () => this.go(null, { x: out.upperDoor.x, z: out.upperDoor.z, y: out.upperDoor.y }, outH) },
       );
     }
     if (lm.home) {
@@ -475,8 +544,6 @@ export class Interiors {
       this.points.push(
         { where: null, p: out.door, r: 1.8, label: 'Betreten', go: () => this.go('block', S.frontIn, 0, 'block') },
         { where: 'block', p: S.front, r: 1.0, label: 'Hinaus', go: () => this.go(null, out.door, out.heading + Math.PI, null, out.heading) },
-        { where: 'block', p: S.up, r: 1.0, label: 'Nach oben', go: () => this.go('block', S.flatArrive, 0, 'flat') },
-        { where: 'block', p: S.flatDoor, r: 0.9, label: 'Treppenhaus', go: () => this.go('block', S.hallArrive, Math.PI) },
         { where: 'block', p: S.bed, r: 1.2, label: 'Schlafen', go: () => this.sleep() },
       );
     }
