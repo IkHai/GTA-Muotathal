@@ -72,9 +72,12 @@ export class Car {
 
     // zu steil? Dann bleibt das Auto stehen
     const t = this.world.terrain;
-    const h0 = t.heightAt(this.x, this.z), h1 = t.heightAt(nx, nz);
+    const h1 = t.heightAt(nx, nz);
     const dist = Math.hypot(nx - this.x, nz - this.z);
-    let blocked = dist > 1e-4 && (h1 - h0) / dist > 0.75;
+    // Steigung über 2 m gemessen, damit kleine Kanten (Strassenrand, Brückenende) nicht blockieren
+    const dir = Math.sign(s) || 1;
+    const ga = t.heightAt(this.x - f.x * dir * 0.5, this.z - f.z * dir * 0.5), gb = t.heightAt(this.x + f.x * dir * 1.5, this.z + f.z * dir * 1.5);
+    let blocked = dist > 1e-4 && (gb - ga) / 2 > 0.75;
 
     // Hindernisse: zwei Kreise vorne und hinten
     if (!blocked) {
