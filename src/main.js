@@ -7,6 +7,7 @@ import { FollowCamera } from './camera.js';
 import { Minimap, BigMap } from './minimap.js';
 import { Grass } from './grass.js';
 import { Zone } from './zone.js';
+import { buildProps } from './props.js';
 import { Traffic } from './traffic.js';
 import { Story, loadSave, setSaveKey } from './story.js';
 import { buildMenu, saveKeyFor } from './profiles.js';
@@ -104,6 +105,8 @@ const minimap = new Minimap(document.getElementById('minimap'), world);
 const bigMap = new BigMap(minimap, world);
 const grass = new Grass(scene, world);
 const zone = new Zone(scene, world);
+const props = buildProps(scene, world);
+console.log('Dorf', JSON.stringify({ ...props, fountain: !!props.fountain }));
 minimap.zone = bigMap.zone = zone;
 let zoneLast = null, zoneWarn = 0;
 
