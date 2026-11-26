@@ -5,7 +5,7 @@ import { materials } from './textures.js';
 import { Colliders } from './collision.js';
 import { makeRng } from './rng.js';
 import { buildRoadNet, drawRoadNet } from './roads.js';
-import { prepareRivers, drawRivers } from './river.js';
+import { prepareRivers, drawRivers, installRiverGround } from './river.js';
 
 // Kachelgrösse für Gelände und Details. Nur Kacheln in der Nähe werden fein gezeichnet.
 const CHUNK = 500;
@@ -77,6 +77,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
   // Muota verbauen und Strassennetz zuerst: beide passen das Gelände an
   const rivers = prepareRivers(osm.water, terrain);
   const net = buildRoadNet(osm.roads, terrain);
+  installRiverGround(rivers, terrain);
   const colliders = new Colliders();
   const rng = makeRng(4417);
   const half = terrain.half;
@@ -96,7 +97,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
       const x0 = -half + ci * CHUNK, z0 = -half + cj * CHUNK;
       const ch = {
         x0, z0, cx: x0 + CHUNK / 2, cz: z0 + CHUNK / 2,
-        detail: { plaster: new Builder(), wood: new Builder(), roof: new Builder(), stone: new Builder(), plain: new Builder(), glass: new Builder() },
+        detail: { plaster: new Builder(), wood: new Builder(), roof: new Builder(), stone: new Builder(), plain: new Builder(), glass: new Builder(), terrain: new Builder() },
         roads: new Builder(), water: [], trees: [],
       };
       ch.lod0 = buildTerrainChunk(terrain, x0, z0, 1, mat);
