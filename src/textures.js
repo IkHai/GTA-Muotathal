@@ -130,6 +130,72 @@ export const tex = {
       g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
     }
   }),
+  // ---- Innenräume ----
+  // dunkle, glänzende Fliesen mit Fugen
+  tiles: () => cache.tiles ??= canvas(128, (g, s) => {
+    g.fillStyle = '#505050'; g.fillRect(0, 0, s, s);
+    const n = 4, w = s / n;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      const v = 200 + Math.random() * 40;
+      const gr = g.createLinearGradient(i * w, j * w, (i + 1) * w, (j + 1) * w);
+      gr.addColorStop(0, `rgb(${v},${v},${v})`); gr.addColorStop(1, `rgb(${v - 30},${v - 30},${v - 30})`);
+      g.fillStyle = gr; g.fillRect(i * w + 1.5, j * w + 1.5, w - 3, w - 3);
+      g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(i * w + 3, j * w + 3, w * 0.5, 2);
+    }
+  }),
+  // Samt mit senkrechten Falten
+  velvet: () => cache.velvet ??= canvas(128, (g, s) => {
+    for (let x = 0; x < s; x++) {
+      const v = 175 + 45 * Math.sin(x / s * Math.PI * 6) + 15 * Math.sin(x / s * Math.PI * 22);
+      g.fillStyle = `rgb(${v | 0},${v | 0},${v | 0})`; g.fillRect(x, 0, 1, s);
+    }
+    for (let i = 0; i < 2500; i++) { g.fillStyle = `rgba(0,0,0,${Math.random() * 0.08})`; g.fillRect(Math.random() * s, Math.random() * s, 1, 2); }
+  }),
+  // gesteppt (Chesterfield): Rauten mit Knöpfen
+  quilt: () => cache.quilt ??= canvas(128, (g, s) => {
+    g.fillStyle = '#c8c8c8'; g.fillRect(0, 0, s, s);
+    const n = 4, w = s / n;
+    for (let i = -1; i <= n; i++) for (let j = -1; j <= n; j++) {
+      const cx = i * w + (j % 2 ? w / 2 : 0), cy = j * w / 2 * 1.0 + w / 4;
+      const gr = g.createRadialGradient(cx, cy, 2, cx, cy, w * 0.6);
+      gr.addColorStop(0, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(0,0,0,0.35)');
+      g.fillStyle = gr; g.beginPath(); g.moveTo(cx, cy - w / 2); g.lineTo(cx + w / 2, cy); g.lineTo(cx, cy + w / 2); g.lineTo(cx - w / 2, cy); g.closePath(); g.fill();
+      g.fillStyle = 'rgba(0,0,0,0.6)'; g.beginPath(); g.arc(cx, cy - w / 2, 2, 0, 7); g.fill();
+    }
+  }),
+  // Tapete mit Ornamenten
+  damask: () => cache.damask ??= canvas(128, (g, s) => {
+    g.fillStyle = '#9a9a9a'; g.fillRect(0, 0, s, s);
+    g.strokeStyle = 'rgba(255,255,255,0.3)'; g.fillStyle = 'rgba(255,255,255,0.2)'; g.lineWidth = 1.2;
+    // kleines Lilien-Ornament, versetzt wiederholt
+    const motif = (cx, cy) => {
+      g.beginPath(); g.ellipse(cx, cy, 2.5, 6, 0, 0, 7); g.fill();
+      for (const sd of [-1, 1]) {
+        g.beginPath(); g.moveTo(cx, cy + 6); g.quadraticCurveTo(cx + sd * 9, cy + 2, cx + sd * 6, cy - 6); g.stroke();
+        g.beginPath(); g.moveTo(cx, cy + 7); g.quadraticCurveTo(cx + sd * 4, cy + 11, cx + sd * 8, cy + 10); g.stroke();
+      }
+      g.beginPath(); g.moveTo(cx - 3, cy + 9); g.lineTo(cx + 3, cy + 9); g.stroke();
+    };
+    for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) motif(i * 32 + (j % 2) * 16 + 8, j * 32 + 12);
+  }),
+  // Spiegel: dunkel mit hellen Schlieren
+  mirror: () => cache.mirror ??= canvas(128, (g, s) => {
+    const gr = g.createLinearGradient(0, 0, s, s);
+    gr.addColorStop(0, '#9aa0b0'); gr.addColorStop(0.5, '#3a3e4a'); gr.addColorStop(1, '#7a8090');
+    g.fillStyle = gr; g.fillRect(0, 0, s, s);
+    g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 6;
+    for (const o of [20, 50, 90]) { g.beginPath(); g.moveTo(o, 0); g.lineTo(o - 40, s); g.stroke(); }
+  }),
+  // weicher Lichtschein
+  halo: () => cache.halo ??= (() => {
+    const t = canvas(64, (g, s) => {
+      const gr = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, s, s);
+    });
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    return t;
+  })(),
   // weiche grosse Flecken für Abwechslung auf den Wiesen (hell/dunkel, trocken/saftig)
   macro: () => cache.macro ??= canvas(128, (g, s) => {
     g.fillStyle = '#808080'; g.fillRect(0, 0, s, s);
