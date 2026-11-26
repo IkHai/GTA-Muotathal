@@ -35,5 +35,10 @@
     "buildings": 1197,
     "water": 77,
     "places": 24
+  },
+  "aerial": {
+    "file": "aerial.jpg",
+    "px": 1600,
+    "source": "SWISSIMAGE © swisstopo"
   }
 }
