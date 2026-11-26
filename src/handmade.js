@@ -168,13 +168,26 @@ function frameFromFootprint(pts, terrain) {
   // Ursprung: Mitte der Frontwand
   const fx = ox + front.nx * front.half, fz = oz + front.nz * front.half;
   const rotY = Math.atan2(-front.nx, -front.nz);      // lokales +z zeigt ins Haus
-  const ground = pts.map(([x, z]) => terrain.groundAt(x, z));
-  const gMin = Math.min(...ground), gMax = Math.max(...ground);
   const toWorld = (x, z) => {
     const c = Math.cos(rotY), s = Math.sin(rotY);
     return [fx + x * c + z * s, fz - x * s + z * c];
   };
-  return { ox, oz, fx, fz, rotY, width, depth, gMin, gMax, nx: front.nx, nz: front.nz, L, W, ax, az, toWorld };
+  // Bodenhöhe: das Haus steht auf dem höchsten Punkt rundherum (inkl. Strasse und Platz),
+  // damit nichts über die Fenster und Türen ragt. Unten reicht der Sockel bis zum tiefsten Punkt.
+  const raw = pts.map(([x, z]) => terrain.groundAt(x, z));
+  const around = [];
+  const W2 = front.along / 2, Dd = front.half * 2;
+  for (let i = 0; i <= 8; i++) {
+    const t = -W2 - 1 + (W2 * 2 + 2) * i / 8;
+    for (const z of [-3, -1.2]) around.push(toWorld(t, z));
+    for (const x of [-W2 - 1.2, W2 + 1.2]) around.push(toWorld(x, (Dd + 2) * i / 8 - 1));
+  }
+  const ground = pts.concat(around).map(([x, z]) => terrain.heightAt(x, z));
+  const gMax = Math.max(...ground);
+  const frontPts = around.filter((_, i) => i % 4 < 2);
+  const gMin = Math.max(...pts.concat(frontPts).map(([x, z]) => terrain.heightAt(x, z))) + 0.05;
+  const drop = gMin - Math.min(...raw);      // so tief muss der Sockel hinunter
+  return { ox, oz, fx, fz, rotY, width, depth, gMin, gMax, drop, nx: front.nx, nz: front.nz, L, W, ax, az, toWorld };
 }
 
 // Fläche mit Textur. Punkte lokal (x, y, z), Reihenfolge gegen den Uhrzeiger von aussen
@@ -355,7 +368,7 @@ export function buildClub(pts, ctx) {
   const group = new THREE.Group();
   group.position.set(F.fx, F.gMin, F.fz);
   group.rotation.y = F.rotY;
-  const base = -1.8;
+  const base = -1.8 - F.drop;
   const G1 = 4.3, G2 = 7.7, H1 = 10.8;                // Decke EG, Decke 1. OG, Traufe (hohe alte Gasthaus-Etagen)
   const pitch = 0.5;
   const ridge = H1 + hw * Math.tan(pitch);
@@ -466,7 +479,8 @@ export function buildClub(pts, ctx) {
   for (const s of [-1, 1]) B.shape(new THREE.BoxGeometry(0.05, 0.05, 1.8), dx + s * 1.2, 0.72, -2.0, 1, 1, 1, 0x9a1020);
 
   // Aussentreppe links (lokal +x) hinauf zur Holztür im 1. OG
-  const steps = 24, rise = G1 / steps, run = 0.3, z0 = 0.7, sw = 1.3;
+  const SY = G1 / 2;                                    // Zwischenpodest des Treppenhauses
+  const steps = 12, rise = SY / steps, run = 0.3, z0 = 0.7, sw = 1.3;
   const sx = hw + 0.05 + sw / 2;
   const walk = [];
   for (let i = 0; i < steps; i++) {
@@ -475,19 +489,19 @@ export function buildClub(pts, ctx) {
     walk.push([sx, zc, sw / 2, run / 2, top]);
   }
   const zl = z0 + steps * run, landD = 1.8;
-  B.box(sx, (G1 + base) / 2, zl + landD / 2, sw, G1 - base, landD, 0x8e8a84);
-  walk.push([sx, zl + landD / 2, sw / 2, landD / 2, G1]);
+  B.box(sx, (SY + base) / 2, zl + landD / 2, sw, SY - base, landD, 0x8e8a84);
+  walk.push([sx, zl + landD / 2, sw / 2, landD / 2, SY]);
   // Geländer
-  const railLen = Math.hypot(steps * run, G1);
-  B.shape(new THREE.BoxGeometry(0.05, 0.05, railLen), sx + sw / 2 - 0.05, G1 / 2 + 0.95, z0 + steps * run / 2, 1, 1, 1, 0x3a3a3c, 0, -Math.atan2(G1, steps * run), 0);
+  const railLen = Math.hypot(steps * run, SY);
+  B.shape(new THREE.BoxGeometry(0.05, 0.05, railLen), sx + sw / 2 - 0.05, SY / 2 + 0.95, z0 + steps * run / 2, 1, 1, 1, 0x3a3a3c, 0, -Math.atan2(SY, steps * run), 0);
   for (let i = 0; i <= steps; i += 3) B.box(sx + sw / 2 - 0.05, (i * rise) + 0.5, z0 + i * run, 0.04, 1.0, 0.04, 0x3a3a3c);
-  B.box(sx + sw / 2 - 0.05, G1 + 0.95, zl + landD / 2, 0.05, 0.05, landD, 0x3a3a3c);
-  for (const z of [zl + 0.6, zl + landD]) B.box(sx + sw / 2 - 0.05, G1 + 0.5, z, 0.04, 1.0, 0.04, 0x3a3a3c);
+  B.box(sx + sw / 2 - 0.05, SY + 0.95, zl + landD / 2, 0.05, 0.05, landD, 0x3a3a3c);
+  for (const z of [zl + 0.6, zl + landD]) B.box(sx + sw / 2 - 0.05, SY + 0.5, z, 0.04, 1.0, 0.04, 0x3a3a3c);
   // Holztür oben
   const doorZ = zl + landD / 2;
-  B.box(hw + 0.04, G1 + 1.1, doorZ, 0.08, 2.15, 1.0, 0x6a4424);
-  B.box(hw + 0.09, G1 + 1.1, doorZ - 0.33, 0.04, 0.08, 0.08, 0xc0a040);
-  B.box(hw + 0.08, G1 + 2.3, doorZ, 0.12, 0.12, 1.25, 0x3a2416);
+  B.box(hw + 0.04, SY + 1.1, doorZ, 0.08, 2.15, 1.0, 0x6a4424);
+  B.box(hw + 0.09, SY + 1.1, doorZ - 0.33, 0.04, 0.08, 0.08, 0xc0a040);
+  B.box(hw + 0.08, SY + 2.3, doorZ, 0.12, 0.12, 1.25, 0x3a2416);
   // Mülltonnen neben der Treppe, Klimagerät hinten
   for (const [z, c] of [[-0.6, 0x3a4a3e], [-1.6, 0x2e3a34], [0.4, 0x2a2e30]]) {
     B.box(sx + 1.6, 0.6, z, 0.75, 1.2, 0.85, c);
@@ -517,7 +531,7 @@ export function buildClub(pts, ctx) {
   neonB.box(dx, 2.98, -0.1, 2.6, 0.06, 0.06, 0xff4f9a);
   for (const u of [-2.6, 3.6]) neonB.box(X(u), G1 - 0.3, -0.15, 0.32, 0.18, 0.2, 0xffd890);     // Wandlampen
   neonB.box(X(-5.6), 3.6, -0.12, 0.3, 0.18, 0.2, 0xffd890);
-  neonB.box(sx - 0.55, G1 + 2.15, doorZ, 0.25, 0.2, 0.25, 0xffe0a0);                             // Lampe über der Holztür
+  neonB.box(sx - 0.55, SY + 2.15, doorZ, 0.25, 0.2, 0.25, 0xffe0a0);                             // Lampe über der Holztür
   const neon = neonB.build(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
   group.add(neon);
   // Graffiti an den Seiten
@@ -546,7 +560,7 @@ export function buildClub(pts, ctx) {
   const [ex, ez] = F.toWorld(dx, -2.6);
   const [ux, uz] = F.toWorld(sx, doorZ);
   const [nx, nz] = F.toWorld(dx, -0.9);
-  const result = { id: 'club', name: "Hell's Club", door: { x: ex, z: ez }, entry: { x: nx, z: nz, y: oy }, upperDoor: { x: ux, z: uz, y: oy + G1 }, x: F.ox, z: F.oz, heading: F.rotY };
+  const result = { id: 'club', name: "Hell's Club", door: { x: ex, z: ez }, entry: { x: nx, z: nz, y: oy }, upperDoor: { x: ux, z: uz, y: oy + SY }, x: F.ox, z: F.oz, heading: F.rotY };
   // Parkplatz hinter dem Haus
   const [px, pz] = F.toWorld(0, D + 9);
   const pg = terrain.heightAt(px, pz);
@@ -585,7 +599,7 @@ export function buildBlock(pts, ctx) {
   }
   group.add(texMesh(pos, uv, new THREE.MeshLambertMaterial({ map: plasterTex('#a9a194', 'block') })));
   const low = [], lowUv = [];
-  boxWalls(low, lowUv, W, D, -1.8, G0 + 0.6, 4);
+  boxWalls(low, lowUv, W, D, -1.8 - F.drop, G0 + 0.6, 4);
   group.add(texMesh(low, lowUv, new THREE.MeshLambertMaterial({ map: plasterTex('#6f6a62', 'blocklow') })));
   // Dach (First parallel zur Front)
   const rp = [], ru = [];

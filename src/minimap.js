@@ -58,6 +58,7 @@ export class Minimap {
     if (this.timer > 0) return;
     this.timer = 0.1;
     const ctx = this.ctx, w = this.canvas.width, c = w / 2;
+    if (this.indoor) return this.drawIndoor(pos, heading, camYaw);
     const zoom = 1.2;
     ctx.save();
     ctx.clearRect(0, 0, w, w);
@@ -85,6 +86,12 @@ export class Minimap {
       ctx.fillStyle = '#f2c230'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(c + px, c + py, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
+    this.drawArrow(heading, camYaw);
+  }
+
+  // Spielerpfeil und Norden
+  drawArrow(heading, camYaw) {
+    const ctx = this.ctx, c = this.canvas.width / 2;
     ctx.save();
     ctx.translate(c, c);
     ctx.rotate(camYaw - heading);
@@ -98,6 +105,65 @@ export class Minimap {
     ctx.fillStyle = '#fff'; ctx.font = 'bold 15px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
     ctx.strokeText('N', nx, ny); ctx.fillText('N', nx, ny);
+  }
+
+  // Im Haus: Grundriss des Stockwerks, in dem man steht
+  drawIndoor(pos, heading, camYaw) {
+    const ctx = this.ctx, w = this.canvas.width, c = w / 2;
+    const S = w / 15;                  // etwa 7 m Radius
+    const feet = pos.y, rot = Math.PI + camYaw;
+    ctx.save();
+    ctx.clearRect(0, 0, w, w);
+    ctx.beginPath(); ctx.arc(c, c, c, 0, Math.PI * 2); ctx.clip();
+    ctx.fillStyle = '#15161a'; ctx.fillRect(0, 0, w, w);
+    ctx.translate(c, c);
+    ctx.rotate(rot);
+    ctx.scale(S, S);
+    ctx.translate(-pos.x, -pos.z);
+    const plan = this.indoor.plan;
+    // Boden
+    ctx.fillStyle = '#5d5a52';
+    for (const it of plan) if (it[6] === 0 && Math.abs(it[5] - feet) < 0.45 && (it[2] - it[0]) * (it[3] - it[1]) > 1.5) ctx.fillRect(it[0], it[1], it[2] - it[0], it[3] - it[1]);
+    // Treppen
+    for (const it of plan) {
+      if (it[6] !== 1 || it[4] > feet + 1.6 || it[5] < feet - 1.6) continue;
+      ctx.fillStyle = '#8f8a7c'; ctx.fillRect(it[0], it[1], it[2] - it[0], it[3] - it[1]);
+      ctx.strokeStyle = '#4a473f'; ctx.lineWidth = 0.05; ctx.beginPath();
+      for (let z = it[1] + 0.3; z < it[3]; z += 0.3) { ctx.moveTo(it[0], z); ctx.lineTo(it[2], z); }
+      ctx.stroke();
+    }
+    // Wände und Möbel auf Brusthöhe
+    ctx.fillStyle = '#e8e2d0'; ctx.strokeStyle = '#e8e2d0'; ctx.lineWidth = 1.4 / S;
+    for (const it of plan) {
+      if (it[4] > feet + 1.0 || it[5] < feet + 0.5) continue;
+      const thin = Math.min(it[2] - it[0], it[3] - it[1]) < 0.25;
+      if (it[6] === 2) { ctx.fillStyle = '#a8a294'; ctx.beginPath(); ctx.arc((it[0] + it[2]) / 2, (it[1] + it[3]) / 2, (it[2] - it[0]) / 2, 0, Math.PI * 2); ctx.fill(); continue; }
+      if (it[6] !== 0) continue;
+      ctx.fillStyle = thin ? '#e8e2d0' : '#a8a294';
+      ctx.fillRect(it[0], it[1], it[2] - it[0], it[3] - it[1]);
+      if (thin) ctx.strokeRect(it[0], it[1], it[2] - it[0], it[3] - it[1]);
+    }
+    ctx.restore();
+    // Ziel im gleichen Massstab
+    if (this.target) {
+      const dx = this.target.x - pos.x, dz = this.target.z - pos.z;
+      const rx = dx * Math.cos(rot) - dz * Math.sin(rot), ry = dx * Math.sin(rot) + dz * Math.cos(rot);
+      let px = rx * S, py = ry * S;
+      const l = Math.hypot(px, py), max = c - 10;
+      if (l > max) { px *= max / l; py *= max / l; }
+      const other = this.target.y !== undefined && Math.abs(this.target.y - feet) > 1.6;
+      ctx.fillStyle = other ? 'rgba(242,194,48,.5)' : '#f2c230'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(c + px, c + py, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (other) { ctx.fillStyle = '#000'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(this.target.y > feet ? '▲' : '▼', c + px, c + py + 1); }
+    }
+    this.drawArrow(heading, camYaw);
+    // Stockwerk
+    const name = this.indoor.floorName ? this.indoor.floorName(feet, pos.x) : '';
+    if (name) {
+      ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.fillStyle = '#ffd860';
+      ctx.strokeText(name, c, w - 22); ctx.fillText(name, c, w - 22);
+    }
   }
 }
 

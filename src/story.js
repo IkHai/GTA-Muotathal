@@ -232,7 +232,7 @@ export class Story {
     else if (step === 'home') {
       if (H) this.setObjective('Geh zu deiner Wohnung im Block gegenüber', lm.home.door, 1.8, { foot: true, hold: true });
       else this.setObjective('Geh zu deiner Wohnung im Block gegenüber', lm.home.door, 1.8, { foot: true });
-    } else if (step === 'flat') this.setObjective('Hinauf in den 3. Stock', H.up, 1.0, { foot: true, hold: true });
+    } else if (step === 'flat') this.setObjective('Geh die Treppe hoch in den 3. Stock', H.flat, 1.0, { foot: true });
     else if (step === 'bed') this.setObjective('Leg dich ins Bett', H.bed, 1.2, { foot: true });
     else this.clearObjective();
   }
@@ -241,7 +241,6 @@ export class Story {
   onEnter(where) {
     if (this.step === 'club' && where === 'club') this.setStep('bruno');
     else if (this.step === 'home' && where === 'block') this.setStep('flat');
-    else if ((this.step === 'flat' || this.step === 'home') && where === 'flat') this.setStep('bed');
   }
 
   // Speichern im Bett: aktueller Kapitelstand
@@ -285,6 +284,7 @@ export class Story {
     if (o.need.foot && car) return null;
     if (this.step === 'park') { this.setStep('club'); return 'Wagen versteckt'; }
     if (this.step === 'club' || this.step === 'bruno') { this.clearObjective(); this.startTalk(); return null; }
+    if (this.step === 'flat') { this.setStep('bed'); return 'Deine Wohnung'; }
     if (this.step === 'home' || this.step === 'bed') {
       this.step = null;
       this.clearObjective();
