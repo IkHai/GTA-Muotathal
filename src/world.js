@@ -4,6 +4,7 @@ import { Builder, ROOF, planarUVs, UNIT_BOX as UNIT_BOX_REF } from './builder.js
 import { materials } from './textures.js';
 import { Colliders } from './collision.js';
 import { makeRng } from './rng.js';
+import { buildRoadNet, drawRoadNet } from './roads.js';
 
 // Kachelgrösse für Gelände und Details. Nur Kacheln in der Nähe werden fein gezeichnet.
 const CHUNK = 500;
@@ -37,6 +38,8 @@ export async function loadWorld(scene, onProgress = () => {}) {
 
 function buildWorld(scene, meta, heights, land, osm, backdrop) {
   const terrain = new Terrain(meta, heights, land);
+  // Strassennetz zuerst: passt das Gelände unter den Strassen an
+  const net = buildRoadNet(osm.roads, terrain);
   const colliders = new Colliders();
   const rng = makeRng(4417);
   const half = terrain.half;
@@ -73,17 +76,16 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
     track: C.gravel, path: C.path, footway: C.path, cycleway: C.asphalt, steps: C.stone, bridleway: C.path,
   }[t] ?? C.asphalt);
   const mainRoads = [];
+  const inNet = new Set(net.ways.map((w) => w.r));
   for (const r of osm.roads) {
     if (r.tn) continue;
     const pts = toPts(r.p);
     const big = ['primary', 'secondary', 'tertiary', 'trunk', 'unclassified'].includes(r.t);
-    ribbon(pts, r.w, big ? 4 : 6, roadColor(r.t), 0.12, r.b, terrain, chunkAt, (ch) => ch.roads);
-    if (big) {
-      mainRoads.push({ ...r, pts });
-      // Mittellinie
-      if (r.w >= 6) dashes(pts, terrain, chunkAt);
-    }
+    // Feldwege und Fusswege liegen weiter auf dem Gelände
+    if (!inNet.has(r)) ribbon(pts, r.w, 6, roadColor(r.t), 0.12, false, terrain, chunkAt, (ch) => ch.roads);
+    if (big) mainRoads.push({ ...r, pts });
   }
+  drawRoadNet(net, terrain, chunkAt, colliders, roadColor);
 
   // ---------- Gewässer ----------
   for (const w of osm.water) {
@@ -104,6 +106,9 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
     buildingIndex.set(k, (buildingIndex.get(k) || 0) + 1);
   }
 
+  // Rasterkarte aller Strassen (2 m), damit keine Bäume oder Laternen auf der Fahrbahn stehen
+  const onRoad = makeRoadMask(osm.roads, half);
+
   // ---------- Wald ----------
   const res = terrain.res;
   for (let j = 0; j < terrain.n; j++) {
@@ -112,6 +117,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
       if (rng() > 0.42) continue;
       const x = -half + i * res + rng.range(-4.5, 4.5), z = -half + j * res + rng.range(-4.5, 4.5);
       if (Math.abs(x) > half - 2 || Math.abs(z) > half - 2) continue;
+      if (onRoad(x, z, 1.5)) continue;
       const y = terrain.heightAt(x, z);
       const s = rng.range(0.85, 1.6);
       chunkAt(x, z).trees.push(x, y, z, s, rng() * 6.28);
@@ -122,7 +128,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
   for (let k = 0; k < 1500; k++) {
     const x = rng.range(-half + 5, half - 5), z = rng.range(-half + 5, half - 5);
     if (terrain.landAt(x, z) !== LAND.MEADOW) continue;
-    if (nearRoad(x, z, mainRoads, 12)) continue;
+    if (nearRoad(x, z, mainRoads, 12) || onRoad(x, z, 3)) continue;
     const y = terrain.heightAt(x, z);
     const s = rng.range(0.9, 1.5);
     chunkAt(x, z).trees.push(x, y, z, s, rng() * 6.28);
@@ -146,7 +152,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
       D.box(lx + ax, g + 6, lz + az, 0.1, 0.1, 0.1, 0x4a4d50);
       D.box(lx + ax * 1.6, g + 5.95, lz + az * 1.6, 0.5, 0.12, 0.5, 0x3a3c3e);
       D.box(lx + ax * 1.6, g + 5.86, lz + az * 1.6, 0.36, 0.04, 0.36, 0xf2ead0);
-      colliders.addCircle(lx, lz, 0.15);
+      if (!onRoad(lx, lz, 0.3)) colliders.addCircle(lx, lz, 0.15);
     }
   }
 
@@ -224,7 +230,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
     if (terrain.landAt(x, z) !== LAND.MEADOW) return false;
     const y = terrain.heightAt(x, z);
     if (Math.abs(terrain.heightAt(x + 4, z) - y) > 2 || Math.abs(terrain.heightAt(x, z + 4) - y) > 2) return false;
-    if (nearRoad(x, z, mainRoads, 15)) return false;
+    if (nearRoad(x, z, mainRoads, 15) || onRoad(x, z, 4)) return false;
     return !colliders.resolve(x, z, 4, y).hit;
   }
   if (cows.length) {
@@ -275,6 +281,34 @@ function houseNear(x, z, index, d) {
 }
 
 const toPts = (p) => { const out = []; for (let i = 0; i < p.length; i += 2) out.push([p[i] / 10, p[i + 1] / 10]); return out; };
+
+// Liefert onRoad(x, z, extra): true, wenn der Punkt auf einer Strasse liegt (plus extra Meter Rand)
+function makeRoadMask(roads, half) {
+  const R = 2, n = Math.ceil(half * 2 / R);
+  const dist = new Float32Array(n * n).fill(99);
+  for (const r of roads) {
+    if (r.tn) continue;
+    const hw = (r.w || 3) / 2;
+    for (let i = 0; i + 3 < r.p.length; i += 2) {
+      const x1 = r.p[i] / 10, z1 = r.p[i + 1] / 10, x2 = r.p[i + 2] / 10, z2 = r.p[i + 3] / 10;
+      const L = Math.hypot(x2 - x1, z2 - z1) || 1e-6;
+      const reach = hw + 6;
+      const i0 = Math.max(0, Math.floor((Math.min(x1, x2) - reach + half) / R)), i1 = Math.min(n - 1, Math.ceil((Math.max(x1, x2) + reach + half) / R));
+      const j0 = Math.max(0, Math.floor((Math.min(z1, z2) - reach + half) / R)), j1 = Math.min(n - 1, Math.ceil((Math.max(z1, z2) + reach + half) / R));
+      for (let j = j0; j <= j1; j++) for (let k = i0; k <= i1; k++) {
+        const px = -half + (k + 0.5) * R, pz = -half + (j + 0.5) * R;
+        const tt = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (pz - z1) * (z2 - z1)) / (L * L)));
+        const d = Math.hypot(px - x1 - (x2 - x1) * tt, pz - z1 - (z2 - z1) * tt) - hw;
+        if (d < dist[j * n + k]) dist[j * n + k] = d;
+      }
+    }
+  }
+  return (x, z, extra = 0) => {
+    const k = Math.floor((x + half) / R), j = Math.floor((z + half) / R);
+    if (k < 0 || j < 0 || k >= n || j >= n) return false;
+    return dist[j * n + k] < extra + R * 0.71;
+  };
+}
 
 function nearRoad(x, z, roads, d) {
   for (const r of roads) for (let i = 0; i < r.pts.length; i += 2) {
@@ -375,7 +409,7 @@ function waterRibbon(pts, width, terrain, chunkAt) {
   // Wasser fliesst bergab: Höhe darf flussabwärts nicht steigen
   const h = p.map(([x, z]) => {
     let m = Infinity;
-    for (const [dx, dz] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]]) m = Math.min(m, terrain.heightAt(x + dx, z + dz));
+    for (const [dx, dz] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]]) m = Math.min(m, terrain.groundAt(x + dx, z + dz));
     return m + 0.35;
   });
   const hw = width / 2;
@@ -400,7 +434,7 @@ function buildTerrainChunk(terrain, x0, z0, step, mat) {
     forest: new THREE.Color(C.forestFloor), scree: new THREE.Color(C.scree), town: new THREE.Color(C.town),
     water: new THREE.Color(C.waterBed), snow: new THREE.Color(C.snow),
   };
-  const H = (x, z) => terrain.heightAt(x, z);
+  const H = (x, z) => (terrain.groundAt || terrain.heightAt).call(terrain, x, z);
   const c = new THREE.Color(), c2 = new THREE.Color();
   // Farbe und Normale pro Eckpunkt (weiche Übergänge)
   const vert = (x, z) => {
@@ -473,7 +507,7 @@ function building(b, terrain, colliders, chunkAt, rng) {
   cx /= pts.length; cz /= pts.length;
   if (Math.abs(cx) > terrain.half - 3 || Math.abs(cz) > terrain.half - 3) return null;
 
-  const ground = pts.map(([x, z]) => terrain.heightAt(x, z));
+  const ground = pts.map(([x, z]) => terrain.groundAt(x, z));
   const gMin = Math.min(...ground), gMax = Math.max(...ground);
   const t = b.t;
   const small = ['garage', 'garages', 'shed', 'hut', 'carport', 'roof', 'kiosk'].includes(t) || area < 30;
@@ -567,7 +601,16 @@ function building(b, terrain, colliders, chunkAt, rng) {
     colliders.addOrientedBox(tx, tz, ax, az, 2.5, 2.5, tg - 1, tg + 36);
   }
 
-  colliders.addOrientedBox(ocx, ocz, ax, az, L / 2, W / 2, base, top + 3);
+  if (pts.length <= 5 && Math.abs(L * W - area) / area < 0.05) colliders.addOrientedBox(ocx, ocz, ax, az, L / 2, W / 2, base, top + 3);
+  else {
+    // unregelmässiger Grundriss: jede Wand einzeln, sonst entstehen unsichtbare Wände neben dem Haus
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % pts.length];
+      const l = Math.hypot(x2 - x1, z2 - z1);
+      if (l < 0.05) continue;
+      colliders.addOrientedBox((x1 + x2) / 2, (z1 + z2) / 2, (x2 - x1) / l, (z2 - z1) / l, l / 2 + 0.1, 0.3, base, top + 3);
+    }
+  }
   return { x: cx, z: cz, pts, church: isChurch };
 }
 
@@ -623,7 +666,7 @@ function buildBackdrop(info, data, terrain, material) {
   const half = size / 2, inner = terrain.half;
   const H = (i, j) => {
     const x = -half + i * res, z = -half + j * res;
-    if (Math.abs(x) <= inner + 0.01 && Math.abs(z) <= inner + 0.01) return terrain.heightAt(x, z);
+    if (Math.abs(x) <= inner + 0.01 && Math.abs(z) <= inner + 0.01) return terrain.groundAt(x, z);
     return baseHeight + data[j * n + i] / 10;
   };
   const pos = [], col = [], nor = [];
@@ -702,7 +745,7 @@ function buildBorder(terrain, e) {
     for (let i = 0; i < n; i++) {
       const ax = x0 + (x1 - x0) * i / n, az = z0 + (z1 - z0) * i / n;
       const bx = x0 + (x1 - x0) * (i + 1) / n, bz = z0 + (z1 - z0) * (i + 1) / n;
-      const ay = terrain.heightAt(ax, az) - 1, by = terrain.heightAt(bx, bz) - 1;
+      const ay = terrain.groundAt(ax, az) - 1, by = terrain.groundAt(bx, bz) - 1;
       const u0 = u, u1 = u + step / 8; u = u1;
       pos.push(ax, ay, az, bx, by, bz, bx, by + H, bz, ax, ay, az, bx, by + H, bz, ax, ay + H, az);
       uv.push(u0, 0, u1, 0, u1, 1, u0, 0, u1, 1, u0, 1);
