@@ -87,8 +87,16 @@ export class Car {
     // andere Autos
     if (!blocked && Car.all) {
       for (const o of Car.all) {
-        if (o === this) continue;
-        if (Math.hypot(o.x - nx, o.z - nz) < 3.4 && Math.hypot(o.x - nx, o.z - nz) < Math.hypot(o.x - this.x, o.z - this.z)) { blocked = true; break; }
+        if (o === this || Math.abs(o.x - nx) > 6 || Math.abs(o.z - nz) > 6) continue;
+        // echte Kollision der Karosserien (gedrehte Rechtecke), nur wenn man sich weiter hineinschiebt
+        const now = carOverlap(this.x, this.z, this.heading, o.x, o.z, o.heading);
+        const next = carOverlap(nx, nz, this.heading, o.x, o.z, o.heading);
+        if (next > 0 && next >= now - 1e-4) {
+          blocked = true;
+          // das andere Auto wird ein Stück mitgeschoben
+          if (!o.hasDriver && Math.abs(s) > 2) o.push = { x: f.x * s * 0.35, z: f.z * s * 0.35 };
+          break;
+        }
       }
     }
     if (Math.abs(nx) > this.world.half - 6 || Math.abs(nz) > this.world.half - 6) blocked = true;
@@ -101,6 +109,7 @@ export class Car {
     }
     this.speed = s;
     this.bump = Math.max(0, this.bump - dt);
+    this.applyPush(dt);
 
     // Räder drehen und lenken
     for (const w of this.wheels) w.rotation.x += s / 0.34 * dt;
@@ -109,6 +118,20 @@ export class Car {
   }
 
   // Auto an das Gelände anpassen (neigen nach vorne/hinten und zur Seite)
+  // Wird das Auto angefahren, rutscht es ein Stück weg
+  applyPush(dt) {
+    const p = this.push;
+    if (!p || this.traffic) { this.push = null; return; }
+    const nx = this.x + p.x * dt, nz = this.z + p.z * dt;
+    const free = !this.world.colliders.resolve(nx, nz, 1.0, this.world.terrain.heightAt(nx, nz) + 0.2, 0.1, 1.4).hit
+      && Math.abs(nx) < this.world.half - 6 && Math.abs(nz) < this.world.half - 6
+      && !(Car.all || []).some((o) => o !== this && carOverlap(nx, nz, this.heading, o.x, o.z, o.heading) > carOverlap(this.x, this.z, this.heading, o.x, o.z, o.heading) + 1e-4);
+    if (free) { this.x = nx; this.z = nz; }
+    const k = Math.max(0, 1 - dt * 4);
+    p.x *= k; p.z *= k;
+    if (!free || Math.hypot(p.x, p.z) < 0.1) this.push = null;
+  }
+
   placeOnGround() {
     const t = this.world.terrain;
     const f = this.forward;
@@ -196,4 +219,21 @@ function buildBody(color) {
     group.add(mesh);
   }
   return group;
+}
+
+// Überlappung zweier Autos (Rechteck 1.9 × 4.5 m). Rückgabe: Eindringtiefe in m (0 = frei).
+const HW = 0.95, HL = 2.25;
+export function carOverlap(ax, az, ah, bx, bz, bh) {
+  const dx = bx - ax, dz = bz - az;
+  if (dx * dx + dz * dz > 30) return 0;
+  const axes = [[Math.sin(ah), Math.cos(ah)], [Math.cos(ah), -Math.sin(ah)], [Math.sin(bh), Math.cos(bh)], [Math.cos(bh), -Math.sin(bh)]];
+  let min = Infinity;
+  for (const [ux, uz] of axes) {
+    const ra = HL * Math.abs(ux * axes[0][0] + uz * axes[0][1]) + HW * Math.abs(ux * axes[1][0] + uz * axes[1][1]);
+    const rb = HL * Math.abs(ux * axes[2][0] + uz * axes[2][1]) + HW * Math.abs(ux * axes[3][0] + uz * axes[3][1]);
+    const d = ra + rb - Math.abs(dx * ux + dz * uz);
+    if (d <= 0) return 0;
+    if (d < min) min = d;
+  }
+  return min;
 }

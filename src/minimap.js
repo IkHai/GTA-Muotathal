@@ -89,3 +89,95 @@ export class Minimap {
     ctx.strokeText('N', nx, ny); ctx.fillText('N', nx, ny);
   }
 }
+
+// Grosse Karte zum Aufklappen (Minikarte antippen oder Taste M). Norden ist oben.
+export class BigMap {
+  constructor(minimap, world) {
+    this.mini = minimap;
+    this.world = world;
+    this.el = document.getElementById('bigmap');
+    this.canvas = document.getElementById('bigmap-canvas');
+    this.ctx = this.canvas.getContext('2d');
+    this.zoom = 1; this.cx = 0; this.cz = 0;
+    this.isOpen = false;
+    document.getElementById('minimap').addEventListener('pointerdown', (e) => { e.stopPropagation(); this.open(); });
+    document.getElementById('bigmap-close').addEventListener('pointerdown', (e) => { e.stopPropagation(); this.close(); });
+    for (const b of document.querySelectorAll('#bigmap-zoom div')) {
+      b.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        this.zoom = Math.max(1, Math.min(6, this.zoom * (b.dataset.z === '1' ? 1.6 : 1 / 1.6)));
+        this.dirty = true;
+      });
+    }
+    addEventListener('keydown', (e) => { if (e.code === 'KeyM') this.isOpen ? this.close() : this.open(); });
+    // Verschieben mit dem Finger
+    const pts = new Map();
+    this.canvas.addEventListener('pointerdown', (e) => { pts.set(e.pointerId, [e.clientX, e.clientY]); this.canvas.setPointerCapture(e.pointerId); });
+    this.canvas.addEventListener('pointermove', (e) => {
+      const p = pts.get(e.pointerId);
+      if (!p) return;
+      const k = this.metersPerPx();
+      this.cx -= (e.clientX - p[0]) * k; this.cz -= (e.clientY - p[1]) * k;
+      pts.set(e.pointerId, [e.clientX, e.clientY]);
+      this.dirty = true;
+    });
+    const up = (e) => pts.delete(e.pointerId);
+    this.canvas.addEventListener('pointerup', up);
+    this.canvas.addEventListener('pointercancel', up);
+  }
+
+  metersPerPx() { return (this.world.half * 2) / (Math.min(innerWidth, innerHeight) * 0.92 * this.zoom); }
+
+  open() {
+    this.isOpen = true;
+    this.el.classList.add('open');
+    this.cx = this.pos ? this.pos.x : 0; this.cz = this.pos ? this.pos.z : 0;
+    this.zoom = 1.6;
+    this.dirty = true;
+  }
+
+  close() { this.isOpen = false; this.el.classList.remove('open'); }
+
+  update(pos, heading, cars) {
+    this.pos = pos;
+    if (!this.isOpen) return;
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    const W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+    if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; }
+    const g = this.ctx, half = this.world.half;
+    const k = this.metersPerPx() / dpr;            // Meter pro Canvas-Pixel
+    const lim = half;
+    this.cx = Math.max(-lim, Math.min(lim, this.cx)); this.cz = Math.max(-lim, Math.min(lim, this.cz));
+    const toX = (x) => W / 2 + (x - this.cx) / k, toY = (z) => H / 2 + (z - this.cz) / k;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.fillStyle = '#1d2419'; g.fillRect(0, 0, W, H);
+    g.imageSmoothingEnabled = true;
+    g.drawImage(this.mini.map, toX(-half), toY(-half), 2 * half / k, 2 * half / k);
+    g.strokeStyle = 'rgba(240,90,50,.9)'; g.lineWidth = 3 * dpr;
+    g.strokeRect(toX(-half + 5), toY(-half + 5), (2 * half - 10) / k, (2 * half - 10) / k);
+    // Ortsnamen
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (const pl of this.world.places) {
+      const big = pl.type === 'village' || pl.type === 'town';
+      if (!big && this.zoom < 1.5 && pl.type === 'isolated_dwelling') continue;
+      g.font = `${big ? 'bold ' : ''}${(big ? 17 : 12) * dpr}px Arial`;
+      g.lineWidth = 3 * dpr; g.strokeStyle = 'rgba(0,0,0,.75)'; g.fillStyle = big ? '#fff6d8' : '#f0f0f0';
+      g.strokeText(pl.name, toX(pl.x), toY(pl.z)); g.fillText(pl.name, toX(pl.x), toY(pl.z));
+    }
+    // Autos
+    g.fillStyle = '#f2b632';
+    for (const c of cars) if (!c.hasDriver) g.fillRect(toX(c.x) - 3 * dpr, toY(c.z) - 3 * dpr, 6 * dpr, 6 * dpr);
+    // Spieler-Pfeil
+    g.save();
+    g.translate(toX(pos.x), toY(pos.z));
+    g.rotate(Math.PI - heading);
+    g.scale(dpr * 1.4, dpr * 1.4);
+    g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(0, -9); g.lineTo(6, 7); g.lineTo(0, 3); g.lineTo(-6, 7); g.closePath();
+    g.fill(); g.stroke();
+    g.restore();
+    // Nordpfeil
+    g.font = `bold ${16 * dpr}px Arial`; g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 3 * dpr;
+    g.strokeText('N ↑', 40 * dpr, 30 * dpr); g.fillText('N ↑', 40 * dpr, 30 * dpr);
+  }
+}

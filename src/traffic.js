@@ -52,6 +52,7 @@ export class Traffic {
       for (const o of allCars) if (o !== car) check(o.x, o.z, 2.4);
       const want = free < 7 ? 0 : free < 18 ? t.target * (free - 7) / 11 : t.target;
       t.speed += Math.max(-9 * dt, Math.min(3 * dt, want - t.speed));
+      if (free < 5.2) t.speed = 0;   // nie ins Hindernis hineinfahren
       t.s += t.dir * t.speed * dt;
       if (t.s < 5) { t.s = 5; t.dir = 1; }
       if (t.s > t.route.length - 5) { t.s = t.route.length - 5; t.dir = -1; }
