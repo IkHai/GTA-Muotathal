@@ -224,7 +224,7 @@ export class Story {
     const lm = this.world.landmarks || {};
     const inn = this.game && this.game.interiors;
     const S = (inn && inn.club && inn.club.spots) || null, H = (inn && inn.block && inn.block.spots) || null;
-    if (step === 'park') this.setObjective("Versteck den Wagen auf dem Parkplatz hinter dem Hell's Club", lm.club.parking, 4.5, { car: true });
+    if (step === 'park') this.setObjective("Versteck den Wagen auf dem Parkplatz neben dem Hell's Club", lm.club.parking, 4.5, { car: true });
     else if (step === 'club') {
       if (S) this.setObjective("Geh in den Hell's Club", lm.club.entry, 1.6, { foot: true, hold: true });
       else this.setObjective("Steig aus und geh in den Hell's Club", lm.club.door, 1.8, { foot: true });

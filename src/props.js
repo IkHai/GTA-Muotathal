@@ -78,6 +78,8 @@ export function buildProps(scene, world) {
         const [x1, z1] = P[i + 1];
         const bx = x1 + nx * off, bz = z1 + nz * off;
         if (Math.hypot(ax - CENTER.x, az - CENTER.z) > 520 || !inPoly(ax, az)) continue;
+        const pk = world.landmarks.club && world.landmarks.club.parking;
+        if (pk && Math.hypot(ax - pk.x, az - pk.z) < 10) continue;
         if (onRoad(ax, az, 0.3) || onRoad(bx, bz, 0.3) || !free(ax, az, 0.3) || !free(bx, bz, 0.3)) continue;
         const ya = t.heightAt(ax, az), yb = t.heightAt(bx, bz);
         if (Math.abs(ya - yb) > 1.2) continue;
