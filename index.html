@@ -7,9 +7,25 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Muotathal 1</title>
-<link rel="stylesheet" href="style.css">
-<script type="importmap">
-{ "imports": { "three": "./lib/three.module.min.js" } }
+<script>
+  // Immer die neueste Version laden: version.json wird nie zwischengespeichert,
+  // und alle Code-Dateien bekommen die Versionsnummer angehängt.
+  window.__ready = (async () => {
+    let v = 'dev';
+    try { v = (await (await fetch('version.json', { cache: 'no-store' })).json()).v; } catch (e) {}
+    window.__VERSION = v;
+    const css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = 'style.css?v=' + v;
+    document.head.appendChild(css);
+    const files = ['main', 'world', 'input', 'player', 'car', 'camera', 'minimap', 'terrain', 'builder', 'collision', 'rng', 'shadow', 'textures'];
+    const imports = { three: './lib/three.module.min.js?v=r170' };
+    for (const f of files) imports[new URL('src/' + f + '.js', location.href).href] = './src/' + f + '.js?v=' + v;
+    const map = document.createElement('script');
+    map.type = 'importmap';
+    map.textContent = JSON.stringify({ imports });
+    document.head.appendChild(map);
+    return v;
+  })();
 </script>
 </head>
 <body>
@@ -55,6 +71,6 @@
   <div>Bitte das Handy quer halten</div>
 </div>
 
-<script type="module" src="src/main.js"></script>
+<script>window.__ready.then(() => import('./src/main.js'));</script>
 </body>
 </html>
