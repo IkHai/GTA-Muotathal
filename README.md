@@ -49,6 +49,7 @@ GitHub lädt die Daten herunter, wenn sich das Skript ändert, oder per Hand unt
 **Actions → Geodaten aktualisieren → Run workflow**.
 
 - Höhenmodell: **swissALTI3D © swisstopo** (Open Government Data)
+- Farben von Wiesen, Wegen und Dächern: Luftbild **SWISSIMAGE © swisstopo** (Open Government Data), geladen mit `tools/build-aerial.mjs` (Actions → Luftbild aktualisieren)
 - Strassen, Gebäude, Gewässer, Wald, Ortsnamen: **© OpenStreetMap-Mitwirkende**, Lizenz [ODbL](https://www.openstreetmap.org/copyright)
 - Berg-Kulisse: AWS Terrain Tiles (Tilezen; u.a. SRTM, EU-DEM)
 

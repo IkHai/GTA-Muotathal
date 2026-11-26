@@ -32,13 +32,48 @@ export async function loadWorld(scene, onProgress = () => {}) {
   onProgress('Lade Höhendaten …');
   const [meta, hBuf, lBuf, osm] = await Promise.all([get('meta.json', 'json'), get('terrain.bin'), get('landcover.bin'), get('osm.json', 'json')]);
   const bBuf = meta.backdrop ? await get('backdrop.bin').catch(() => null) : null;
+  const aerial = meta.aerial ? await loadAerial('data/' + meta.aerial.file + '?v=' + (window.__VERSION || 'dev'), meta.size).catch(() => null) : null;
   onProgress('Baue das Tal …');
   await new Promise((r) => setTimeout(r, 30));
-  return buildWorld(scene, meta, new Uint16Array(hBuf), new Uint8Array(lBuf), osm, bBuf && new Uint16Array(bBuf));
+  return buildWorld(scene, meta, new Uint16Array(hBuf), new Uint8Array(lBuf), osm, bBuf && new Uint16Array(bBuf), aerial);
 }
 
-function buildWorld(scene, meta, heights, land, osm, backdrop) {
+// Luftbild (SWISSIMAGE) als Farbquelle: liefert die mittlere Farbe (sRGB 0..1) an einer Stelle.
+async function loadAerial(url, size) {
+  const r = await fetch(url, { cache: 'no-cache' });
+  if (!r.ok) throw new Error('aerial ' + r.status);
+  const bmp = await createImageBitmap(await r.blob());
+  const make = (px) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = px;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(bmp, 0, 0, px, px);
+    return { px, data: g.getImageData(0, 0, px, px).data };
+  };
+  const fine = make(Math.min(bmp.width, 1600)), coarse = make(400);
+  const half = size / 2, out = [0, 0, 0];
+  const sample = (img, x, z, rad) => {
+    const s = img.px / size;
+    const cx = (x + half) * s, cz = (z + half) * s, rr = Math.max(0, Math.round(rad * s));
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let j = -rr; j <= rr; j++) for (let i = -rr; i <= rr; i++) {
+      const px = Math.max(0, Math.min(img.px - 1, Math.floor(cx) + i)), pz = Math.max(0, Math.min(img.px - 1, Math.floor(cz) + j));
+      const k = (pz * img.px + px) * 4;
+      r += img.data[k]; g += img.data[k + 1]; b += img.data[k + 2]; n++;
+    }
+    out[0] = r / n / 255; out[1] = g / n / 255; out[2] = b / n / 255;
+    return out;
+  };
+  return {
+    ground: (x, z) => sample(coarse, x, z, 0),          // 10 m gemittelt
+    at: (x, z, rad) => sample(fine, x, z, rad),          // 2.5 m, Radius in Metern
+  };
+}
+
+function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
   const terrain = new Terrain(meta, heights, land);
+  terrain.aerial = aerial;
   // Muota verbauen und Strassennetz zuerst: beide passen das Gelände an
   const rivers = prepareRivers(osm.water, terrain);
   const net = buildRoadNet(osm.roads, terrain);
@@ -457,6 +492,17 @@ function buildTerrainChunk(terrain, x0, z0, step, mat) {
     else if (land === LAND.TOWN) c.copy(pal.town);
     else if (land === LAND.ROCK) c.copy(pal.rock[0]);
     else c.copy(pal.meadow[0]).lerp(pal.meadow[1], big).lerp(pal.meadow[2], hash * 0.3);
+    // echte Farben aus dem Luftbild, vereinfacht: Helligkeit halb an die Spielpalette angeglichen
+    if (terrain.aerial && land !== LAND.WATER && Math.abs(x) < terrain.half && Math.abs(z) < terrain.half) {
+      const [ar, ag, ab] = terrain.aerial.ground(x, z);
+      c2.setRGB(ar, ag, ab, THREE.SRGBColorSpace);
+      const la = 0.3 * c2.r + 0.59 * c2.g + 0.11 * c2.b + 1e-4, lp = 0.3 * c.r + 0.59 * c.g + 0.11 * c.b;
+      c2.multiplyScalar(Math.min(2.5, (la * 0.4 + lp * 0.6) / la));
+      // etwas kräftigere Farben (Spielstil)
+      const m = (c2.r + c2.g + c2.b) / 3;
+      c2.r = m + (c2.r - m) * 1.25; c2.g = m + (c2.g - m) * 1.25; c2.b = m + (c2.b - m) * 1.25;
+      c.lerp(c2, land === LAND.TOWN ? 0.5 : 0.75);
+    }
     // steile Hänge werden felsig
     const rockMix = Math.min(1, Math.max(0, (slope - 0.22) * 4));
     if (rockMix > 0) c.lerp(c2.copy(pal.rock[hash < 0.5 ? 0 : 1]), rockMix);
@@ -543,7 +589,13 @@ function building(b, terrain, colliders, chunkAt, rng) {
   const hash = Math.abs(Math.sin(cx * 3.1 + cz * 7.7) * 1000) % 1;
   const isWood = !isChurch && !['apartments', 'commercial', 'retail', 'school', 'industrial', 'public', 'hotel'].includes(t) && hash < 0.55;
   const wallColor = isChurch ? 0xe2dccd : isWood ? C.wood[Math.floor(hash * 30) % 3] : C.plaster[Math.floor(hash * 30) % 3];
-  const roofColor = isChurch ? 0x4d4440 : C.roof[Math.floor(hash * 70) % 4];
+  let roofColor = isChurch ? 0x4d4440 : C.roof[Math.floor(hash * 70) % 4];
+  if (terrain.aerial && !isChurch) {
+    // Dachfarbe aus dem Luftbild (Mitte des Hauses), leicht an die Dachpalette angeglichen
+    const [r, g, bl] = terrain.aerial.at(cx, cz, Math.min(3, Math.sqrt(area) * 0.25));
+    const ac = new THREE.Color().setRGB(r, g, bl, THREE.SRGBColorSpace);
+    roofColor = new THREE.Color(roofColor).lerp(ac.multiplyScalar(0.95), 0.7).getHex();
+  }
 
   // Wände (Steinsockel + Wand)
   const wc = new THREE.Color(wallColor), sc = new THREE.Color(C.stone), win = new THREE.Color(C.window);
