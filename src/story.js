@@ -7,7 +7,9 @@ import { makeCharacter } from './player.js';
 // Pragelpass in den Stalden, findet im Hell's Club Hilfe bei Bruno Hell und bezieht eine Wohnung.
 // Ablauf: Zwischensequenz -> Wagen verstecken -> in den Club (Gespräch) -> zur Wohnung (speichern).
 
-const SAVE_KEY = 'muotathal-save';
+// Spielstand des gewählten Kontos (siehe profiles.js)
+let SAVE_KEY = 'muotathal-save';
+export function setSaveKey(k) { SAVE_KEY = k; }
 export function loadSave() { try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || null; } catch (_) { return null; } }
 export function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (_) { /* egal */ } }
 function writeSave(data) { try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (_) { /* egal */ } }
