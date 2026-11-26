@@ -54,6 +54,10 @@ GitHub lädt die Daten herunter, wenn sich das Skript ändert, oder per Hand unt
 
 Den Ausschnitt (Mitte, Grösse) kann man oben im Skript ändern, z.B. um das Tal zu erweitern.
 
+## Neue Version veröffentlichen
+
+Bei jeder Änderung die Zahl in `version.json` erhöhen. Dann laden alle Handys sofort die neuen Dateien statt der zwischengespeicherten.
+
 ## Technik
 
 - [Three.js](https://threejs.org) (r170, liegt in `lib/`, keine Installation nötig)

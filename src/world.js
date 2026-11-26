@@ -23,7 +23,7 @@ const C = {
 
 export async function loadWorld(scene, onProgress = () => {}) {
   const get = async (f, type) => {
-    const r = await fetch('data/' + f, { cache: 'no-cache' });
+    const r = await fetch('data/' + f + '?v=' + (window.__VERSION || 'dev'), { cache: 'no-cache' });
     if (!r.ok) throw new Error(f + ': ' + r.status);
     return type === 'json' ? r.json() : r.arrayBuffer();
   };
