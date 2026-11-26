@@ -84,3 +84,9 @@ html, body {
 }
 @keyframes turn { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
 @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
+
+#credits {
+  position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%);
+  font: 9px Arial, sans-serif; opacity: .65; white-space: nowrap; text-shadow: 0 1px 1px #000;
+}
+#credits-start { position: absolute; bottom: 10px; left: 0; right: 0; font: 11px Arial, sans-serif; opacity: .7; padding: 0 12px; }

@@ -249,6 +249,12 @@ function assembleRings(ways) {
 
 function simplify(pts, tol) {
   if (pts.length < 3) return pts;
+  const [fx, fz] = pts[0], [lx, lz] = pts[pts.length - 1];
+  if (Math.hypot(fx - lx, fz - lz) < 0.01) {
+    // geschlossener Ring: an der Mitte teilen, sonst würde alles wegfallen
+    const mid = Math.floor(pts.length / 2);
+    return simplify(pts.slice(0, mid + 1), tol).concat(simplify(pts.slice(mid), tol).slice(1));
+  }
   const keep = new Uint8Array(pts.length);
   keep[0] = keep[pts.length - 1] = 1;
   const stack = [[0, pts.length - 1]];

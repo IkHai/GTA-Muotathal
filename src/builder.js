@@ -53,10 +53,11 @@ export class Builder {
     this.shape(UNIT_BOX, x, y, z, sx, sy, sz, color, ry, 0, 0, jitter);
   }
 
-  build(material) {
+  build(material, uvScale = 0.4) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(planarUVs(this.pos, uvScale), 2));
     g.computeVertexNormals();
     g.computeBoundingSphere();
     return new THREE.Mesh(g, material);
@@ -64,3 +65,22 @@ export class Builder {
 }
 
 export const lowPolyMaterial = () => new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+
+// Texturkoordinaten automatisch aus der Lage im Raum (je nach Ausrichtung des Dreiecks)
+export function planarUVs(pos, scale) {
+  const uv = new Float32Array(pos.length / 3 * 2);
+  for (let i = 0; i < pos.length; i += 9) {
+    const ax = pos[i], ay = pos[i + 1], az = pos[i + 2];
+    const ux = pos[i + 3] - ax, uy = pos[i + 4] - ay, uz = pos[i + 5] - az;
+    const vx = pos[i + 6] - ax, vy = pos[i + 7] - ay, vz = pos[i + 8] - az;
+    const nx = Math.abs(uy * vz - uz * vy), ny = Math.abs(uz * vx - ux * vz), nz = Math.abs(ux * vy - uy * vx);
+    for (let k = 0; k < 3; k++) {
+      const x = pos[i + k * 3], y = pos[i + k * 3 + 1], z = pos[i + k * 3 + 2];
+      const o = (i / 3 + k) * 2;
+      if (ny >= nx && ny >= nz) { uv[o] = x * scale; uv[o + 1] = z * scale; }
+      else if (nx >= nz) { uv[o] = z * scale; uv[o + 1] = y * scale; }
+      else { uv[o] = x * scale; uv[o + 1] = y * scale; }
+    }
+  }
+  return uv;
+}

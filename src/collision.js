@@ -36,6 +36,13 @@ export class Colliders {
     this.addBox(x - w / 2, x + w / 2, z - d / 2, z + d / 2, bottom, top);
   }
 
+  // Gedrehte Kiste (z.B. Haus aus OpenStreetMap). ax/az = Richtung der langen Seite (Länge 1)
+  addOrientedBox(cx, cz, ax, az, halfU, halfV, bottom, top) {
+    const b = { type: 2, cx, cz, ax, az, hu: halfU, hv: halfV, bottom, top };
+    const r = Math.hypot(halfU, halfV);
+    this._insert(b, cx - r, cx + r, cz - r, cz + r);
+  }
+
   near(x, z, r) {
     const out = new Set();
     for (let i = Math.floor((x - r) / BUCKET); i <= Math.floor((x + r) / BUCKET); i++) {
@@ -65,6 +72,25 @@ export class Colliders {
           z = it.z + dz / d * min;
           hit = true;
         }
+      } else if (it.type === 2) {
+        if (feetY >= it.top - stepHeight || feetY + headroom < it.bottom) continue;
+        // in die lokalen Achsen der Kiste umrechnen
+        const px = x - it.cx, pz = z - it.cz;
+        let u = px * it.ax + pz * it.az, v = -px * it.az + pz * it.ax;
+        const cu = Math.max(-it.hu, Math.min(u, it.hu)), cv = Math.max(-it.hv, Math.min(v, it.hv));
+        const du = u - cu, dv = v - cv;
+        const d2 = du * du + dv * dv;
+        if (d2 >= r * r) continue;
+        hit = true;
+        if (d2 > 1e-8) {
+          const d = Math.sqrt(d2);
+          u = cu + du / d * r; v = cv + dv / d * r;
+        } else {
+          const pu = it.hu + r - Math.abs(u), pv = it.hv + r - Math.abs(v);
+          if (pu < pv) u = Math.sign(u || 1) * (it.hu + r); else v = Math.sign(v || 1) * (it.hv + r);
+        }
+        x = it.cx + u * it.ax - v * it.az;
+        z = it.cz + u * it.az + v * it.ax;
       } else {
         if (feetY >= it.top - stepHeight || feetY + headroom < it.bottom) continue;
         const cx = Math.max(it.minX, Math.min(x, it.maxX));
@@ -105,6 +131,10 @@ export class Colliders {
   insideBox(x, y, z) {
     for (const it of this.near(x, z, 0.5)) {
       if (it.type === 1 && x > it.minX && x < it.maxX && z > it.minZ && z < it.maxZ && y > it.bottom && y < it.top) return true;
+      if (it.type === 2 && y > it.bottom && y < it.top) {
+        const px = x - it.cx, pz = z - it.cz;
+        if (Math.abs(px * it.ax + pz * it.az) < it.hu && Math.abs(-px * it.az + pz * it.ax) < it.hv) return true;
+      }
     }
     return false;
   }
