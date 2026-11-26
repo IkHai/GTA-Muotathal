@@ -5,7 +5,7 @@ import { materials } from './textures.js';
 import { Colliders } from './collision.js';
 import { makeRng } from './rng.js';
 import { buildRoadNet, drawRoadNet } from './roads.js';
-import { prepareRivers, drawRivers } from './river.js';
+import { prepareRivers, drawRivers, installRiverGround } from './river.js';
 
 // Kachelgrösse für Gelände und Details. Nur Kacheln in der Nähe werden fein gezeichnet.
 const CHUNK = 500;
@@ -77,6 +77,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
   // Muota verbauen und Strassennetz zuerst: beide passen das Gelände an
   const rivers = prepareRivers(osm.water, terrain);
   const net = buildRoadNet(osm.roads, terrain);
+  installRiverGround(rivers, terrain);
   const colliders = new Colliders();
   const rng = makeRng(4417);
   const half = terrain.half;
@@ -96,7 +97,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
       const x0 = -half + ci * CHUNK, z0 = -half + cj * CHUNK;
       const ch = {
         x0, z0, cx: x0 + CHUNK / 2, cz: z0 + CHUNK / 2,
-        detail: { plaster: new Builder(), wood: new Builder(), roof: new Builder(), stone: new Builder(), plain: new Builder(), glass: new Builder() },
+        detail: { plaster: new Builder(), wood: new Builder(), roof: new Builder(), stone: new Builder(), plain: new Builder(), glass: new Builder(), terrain: new Builder() },
         roads: new Builder(), water: [], trees: [],
       };
       ch.lod0 = buildTerrainChunk(terrain, x0, z0, 1, mat);
@@ -175,7 +176,11 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
     colliders.addCircle(x, z, 0.4 * s);
   }
 
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(), pv = new THREE.Vector3();
+
   // ---------- Strassenlaternen an den Hauptstrassen im Dorf ----------
+  // Jede Laterne ist eine Instanz, damit sie beim Anfahren umfallen kann.
+  const lamps = [];
   for (const r of mainRoads) {
     const p = resample(r.pts, 35);
     for (let i = 1; i < p.length - 1; i++) {
@@ -185,20 +190,39 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
       const dx = nx2 - x, dz = nz2 - z, l = Math.hypot(dx, dz) || 1;
       const side = (i % 2 ? 1 : -1) * (r.w / 2 + 0.9);
       const lx = x - dz / l * side, lz = z + dx / l * side;
-      const g = terrain.heightAt(lx, lz);
-      const D = chunkAt(lx, lz).detail.plain;
-      D.box(lx, g + 3, lz, 0.14, 6, 0.14, 0x4a4d50);
-      const ax = dz / l * Math.sign(side) * 0.6, az = -dx / l * Math.sign(side) * 0.6;
-      D.box(lx + ax, g + 6, lz + az, 0.1, 0.1, 0.1, 0x4a4d50);
-      D.box(lx + ax * 1.6, g + 5.95, lz + az * 1.6, 0.5, 0.12, 0.5, 0x3a3c3e);
-      D.box(lx + ax * 1.6, g + 5.86, lz + az * 1.6, 0.36, 0.04, 0.36, 0xf2ead0);
-      if (!onRoad(lx, lz, 0.3)) colliders.addCircle(lx, lz, 0.15);
+      const ax = dz / l * Math.sign(side), az = -dx / l * Math.sign(side);
+      const lamp = { x: lx, z: lz, g: terrain.heightAt(lx, lz), rot: Math.atan2(-az, ax), fallen: false, a: 0, w: 0, fx: 0, fz: 0 };
+      if (!onRoad(lx, lz, 0.3)) lamp.collider = colliders.addCircle(lx, lz, 0.15);
+      lamps.push(lamp);
     }
   }
+  const lampMesh = lamps.length ? new THREE.InstancedMesh(makeLampGeometry(), M.plain, lamps.length) : null;
+  const lampGrid = new Map();
+  const lampKey = (i, j) => i * 10007 + j;
+  const setLampMatrix = (i) => {
+    const L = lamps[i];
+    q.setFromAxisAngle(up, L.rot);
+    if (L.a) { qf.setFromAxisAngle(fallAxis.set(L.fz, 0, -L.fx), L.a); q.premultiply(qf); }
+    m4.compose(pv.set(L.x, L.g, L.z), q, sc.set(1, 1, 1));
+    lampMesh.setMatrixAt(i, m4);
+  };
+  const qf = new THREE.Quaternion(), fallAxis = new THREE.Vector3();
+  if (lampMesh) {
+    lamps.forEach((L, i) => {
+      L.i = i;
+      const k = lampKey(Math.floor(L.x / 16), Math.floor(L.z / 16));
+      if (!lampGrid.has(k)) lampGrid.set(k, []);
+      lampGrid.get(k).push(L);
+      setLampMatrix(i);
+    });
+    lampMesh.castShadow = true;
+    lampMesh.frustumCulled = false;
+    scene.add(lampMesh);
+  }
+  const fallingLamps = new Set();
 
   const treeNear = makeTreeGeometry(true), treeFar = makeTreeGeometry(false);
   const treeMat = M.tree;
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(), pv = new THREE.Vector3();
 
   // ---------- Kacheln fertigstellen ----------
   for (const ch of chunks) {
@@ -296,7 +320,38 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
 
   return {
     cows, terrain, colliders, houses, clouds, meta, osm, chunks, half, mainRoads,
-    spawn, carSpawns: carSpots,
+    spawn, carSpawns: carSpots, lamps,
+    // Laternen in der Nähe eines Punktes
+    lampsNear(x, z, r) {
+      const out = [];
+      for (let i = Math.floor((x - r) / 16); i <= Math.floor((x + r) / 16); i++) {
+        for (let j = Math.floor((z - r) / 16); j <= Math.floor((z + r) / 16); j++) {
+          for (const L of lampGrid.get(lampKey(i, j)) || []) if (!L.fallen && Math.hypot(L.x - x, L.z - z) < r) out.push(L);
+        }
+      }
+      return out;
+    },
+    // Laterne umwerfen: fällt in Richtung (dx, dz)
+    knockLamp(L, dx, dz, speed) {
+      if (L.fallen) return;
+      const l = Math.hypot(dx, dz) || 1;
+      L.fallen = true; L.fx = dx / l; L.fz = dz / l; L.w = 0.6 + Math.min(2, speed / 10);
+      if (L.collider) L.collider.dead = true;
+      fallingLamps.add(L);
+    },
+    updateLamps(dt) {
+      for (const L of fallingLamps) {
+        // kippt immer schneller, bis sie am Boden liegt
+        L.w += (1.5 + 9 * Math.sin(L.a)) * dt;
+        L.a += L.w * dt;
+        if (L.a >= 1.5) {
+          L.a = 1.5;
+          if (L.w > 1.5) L.w = -L.w * 0.2; else { L.w = 0; fallingLamps.delete(L); }
+        }
+        setLampMatrix(L.i);
+      }
+      if (lampMesh && fallingLamps.size) lampMesh.instanceMatrix.needsUpdate = true;
+    },
     places: osm.places.filter((p) => ['village', 'hamlet', 'locality', 'isolated_dwelling', 'neighbourhood', 'town'].includes(p.type)),
     updateVisibility(cam) {
       for (const ch of chunks) {
@@ -697,6 +752,16 @@ function makeCowGeometry() {
   b.box(0, 0.7, -0.4, 0.3, 0.12, 0.3, 0xc8a8a0);            // Euter
   b.box(0, 0.9, -0.9, 0.06, 0.6, 0.06, dark);               // Schwanz
   b.box(0, 0.72, 0.95, 0.16, 0.2, 0.06, 0x8a7a40);          // Glocke
+  return b.build(null, 0.5).geometry;
+}
+
+// Laterne am Ursprung, Arm zeigt nach +x
+function makeLampGeometry() {
+  const b = new Builder();
+  b.box(0, 3, 0, 0.14, 6, 0.14, 0x4a4d50);
+  b.box(0.3, 6, 0, 0.6, 0.1, 0.1, 0x4a4d50);
+  b.box(0.96, 5.95, 0, 0.5, 0.12, 0.5, 0x3a3c3e);
+  b.box(0.96, 5.86, 0, 0.36, 0.04, 0.36, 0xf2ead0);
   return b.build(null, 0.5).geometry;
 }
 

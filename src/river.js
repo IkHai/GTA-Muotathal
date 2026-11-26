@@ -8,6 +8,8 @@ const WALL_IN = 1.4;   // Mauerfuss: so weit innerhalb der Wasserkante
 const WALL_OUT = 0.9;  // Mauerkrone: so weit ausserhalb der Wasserkante
 const PATH_D = 3.0;    // Abstand Dammweg-Mitte von der Wasserkante
 const PATH_W = 2.4;
+const BAND = PATH_D + PATH_W / 2 + 1.8;   // ebene Dammkrone bis hier (ab Wasserkante)
+const RAMP = 8;                           // danach Übergang aufs Gelände über 8 m
 
 export function prepareRivers(water, terrain) {
   const ground = terrain.heightAt.bind(terrain);
@@ -64,10 +66,69 @@ export function prepareRivers(water, terrain) {
     }
   }
   for (const [idx, { e, wl, cr }] of best) {
-    if (e < -0.5) H[idx] = Math.min(H[idx], wl - 1.2);
-    else if (e < PATH_D + 3) H[idx] = Math.max(H[idx], cr);
+    if (e < -3) H[idx] = Math.min(H[idx], wl - 1.2);
+    else if (e >= 0 && e < BAND + 2) H[idx] = Math.max(H[idx], cr);
   }
+
+  // Abschnitte für schnelle Abfragen (Dammhöhe an beliebiger Stelle)
+  const grid = new Map();
+  for (const r of rivers) {
+    for (let i = 0; i < r.pts.length - 1; i++) {
+      const [x1, z1] = r.pts[i], [x2, z2] = r.pts[i + 1];
+      const seg = { r, i, x1, z1, x2, z2, len2: (x2 - x1) ** 2 + (z2 - z1) ** 2 || 1e-6 };
+      const m = r.hw + BAND + 8;
+      for (let a = Math.floor((Math.min(x1, x2) - m) / 16); a <= Math.floor((Math.max(x1, x2) + m) / 16); a++) {
+        for (let b = Math.floor((Math.min(z1, z2) - m) / 16); b <= Math.floor((Math.max(z1, z2) + m) / 16); b++) {
+          const k = a * 100003 + b;
+          if (!grid.has(k)) grid.set(k, []);
+          grid.get(k).push(seg);
+        }
+      }
+    }
+  }
+  const info = { e: 0, cr: 0, wl: 0, qx: 0, qz: 0, ux: 0, uz: 0 };
+  rivers.at = (x, z) => {
+    const l = grid.get(Math.floor(x / 16) * 100003 + Math.floor(z / 16));
+    if (!l) return null;
+    let best = null, be = Infinity, bt = 0, bs = 0;
+    for (const g of l) {
+      let t = ((x - g.x1) * (g.x2 - g.x1) + (z - g.z1) * (g.z2 - g.z1)) / g.len2;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const e = Math.hypot(x - g.x1 - (g.x2 - g.x1) * t, z - g.z1 - (g.z2 - g.z1) * t) - g.r.hw;
+      if (e < be) { be = e; best = g; bt = t; bs = ((g.x2 - g.x1) * (z - g.z1) - (g.z2 - g.z1) * (x - g.x1)) > 0 ? 0 : 1; }
+    }
+    if (!best) return null;
+    const { r, i } = best;
+    info.e = be;
+    info.qx = best.x1 + (best.x2 - best.x1) * bt; info.qz = best.z1 + (best.z2 - best.z1) * bt;
+    const dd = Math.hypot(x - info.qx, z - info.qz) || 1;
+    info.ux = (x - info.qx) / dd; info.uz = (z - info.qz) / dd;
+    info.hw = r.hw;
+    info.cr = r.crest[i][bs] + (r.crest[i + 1][bs] - r.crest[i][bs]) * bt;
+    info.wl = r.wl[i] + (r.wl[i + 1] - r.wl[i]) * bt;
+    return info;
+  };
   return rivers;
+}
+
+// Begehbarer Damm: ausserhalb der Mauer zählt die Dammkrone bzw. die Böschung
+export function installRiverGround(rivers, terrain) {
+  if (!rivers.length) return;
+  const prev = terrain.heightAt;
+  terrain.heightAt = (x, z) => {
+    const h = prev(x, z);
+    const r = rivers.at(x, z);
+    if (!r || r.e < WALL_OUT || r.e > BAND + RAMP) return h;
+    if (terrain.roadAt) { const rh = terrain.roadAt(x, z); if (rh === rh) return h; }   // Strassen haben Vorrang
+    let band = r.cr;
+    if (r.e > BAND) {
+      // gerader Übergang von der Dammkrone zum Gelände 8 m weiter aussen
+      const cr = r.cr, k = (r.e - BAND) / RAMP, d = r.hw + BAND + RAMP;
+      const g = prev(r.qx + r.ux * d, r.qz + r.uz * d);
+      band = cr + (g - cr) * k;
+    }
+    return Math.max(h, band);
+  };
 }
 
 function normal(pts, i) {
@@ -133,6 +194,25 @@ export function drawRivers(rivers, terrain, chunkAt, colliders, rng, onRoad, roa
         quad2(ch.detail.stone, wallC, P(A, na, hw - WALL_IN, wl[i] - 0.6), P(B, nb, hw - WALL_IN, wl[i + 1] - 0.6), P(B, nb, hw + WALL_OUT, cb), P(A, na, hw + WALL_OUT, ca));
         // Mauerkrone (Abdeckung)
         quad2(ch.detail.stone, 0x9c978c, P(A, na, hw + WALL_OUT, ca), P(B, nb, hw + WALL_OUT, cb), P(B, nb, hw + WALL_OUT + 0.6, cb + 0.02), P(A, na, hw + WALL_OUT + 0.6, ca + 0.02));
+        // aufgefüllte Dammkrone (Wiese) und Böschung zum Gelände
+        {
+          const ground = terrain.groundAt || terrain.heightAt;
+          const e0 = hw + WALL_OUT + 0.6, e1 = hw + BAND;
+          const gc = new THREE.Color(0x7c9a48);
+          if (terrain.aerial) {
+            const [r, g, bl] = terrain.aerial.ground((ax + bx) / 2 + na[0] * e1 * sg, (az + bz) / 2 + na[1] * e1 * sg);
+            gc.lerp(new THREE.Color().setRGB(r, g, bl, THREE.SRGBColorSpace).multiplyScalar(1.1), 0.6);
+          }
+          gc.multiplyScalar(k);
+          quadUp(ch.detail.terrain, gc, P(A, na, e0, ca + 0.04), P(B, nb, e0, cb + 0.04), P(B, nb, e1, cb + 0.04), P(A, na, e1, ca + 0.04));
+          // Übergang zum Gelände (wie die Begehbarkeit oben)
+          const foot = (p, nrm, c) => {
+            const e = e1 + RAMP, x = p[0] + nrm[0] * e * sg, z = p[1] + nrm[1] * e * sg;
+            return [x, terrain.heightAt(x, z) - 0.05, z];
+          };
+          const fa = foot(A, na, ca), fb = foot(B, nb, cb);
+          quadUp(ch.detail.terrain, gc.clone().multiplyScalar(0.92), P(A, na, e1, ca + 0.04), P(B, nb, e1, cb + 0.04), fb, fa);
+        }
         // Dammweg aus Kies (nur wo frei: keine Strasse, kein Haus)
         const mx = (ax + bx) / 2 + (na[0] + nb[0]) / 2 * (hw + PATH_D) * sg, mz = (az + bz) / 2 + (na[1] + nb[1]) / 2 * (hw + PATH_D) * sg;
         const free = !onRoad(mx, mz, 0.5) && !nearWay(mx, mz, 6) && !colliders.resolve(mx, mz, 1.2, terrain.heightAt(mx, mz) + 0.2).hit;

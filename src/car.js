@@ -17,6 +17,8 @@ export class Car {
     this.roll = 3;
     this.hasDriver = false;
     this.bump = 0;
+    this.kick = { x: 0, z: 0 };  // Schub nach einem Zusammenstoss (Welt-Richtung, m/s)
+    this.spin = 0;               // Drehung nach einem Zusammenstoss (rad/s)
 
     this.mesh = new THREE.Group();
     this.body = buildBody(spawn.color);
@@ -60,59 +62,88 @@ export class Car {
     if (gas && !brake) s = approach(s, this.maxSpeed, this.accel * (1 - Math.max(0, s) / (this.maxSpeed * 1.4)) * dt);
     else if (brake && s > 0.5) s = approach(s, 0, this.brake * dt);
     else if (brake) s = approach(s, -this.maxReverse, this.accel * 0.6 * dt);
-    else s = approach(s, 0, (this.hasDriver ? this.roll : this.brake) * dt);
+    else s = approach(s, 0, (this.hasDriver ? this.roll : 8) * dt);
 
     // Lenken: bei Tempo weniger stark, rückwärts umgekehrt
     const speedFactor = Math.min(1, Math.abs(s) / 4) * (1 - Math.min(0.55, Math.abs(s) / 60));
     this.heading -= this.steer * 1.9 * speedFactor * Math.sign(s) * dt;
 
+    // Drehimpuls nach einem Stoss (Auto dreht sich ein wenig)
+    if (this.spin) {
+      this.heading += this.spin * dt;
+      this.spin *= Math.max(0, 1 - dt * 3);
+      if (Math.abs(this.spin) < 0.02) this.spin = 0;
+    }
+
     const f = this.forward;
-    let nx = this.x + f.x * s * dt;
-    let nz = this.z + f.z * s * dt;
+    const k = this.kick;
+    let nx = this.x + (f.x * s + k.x) * dt;
+    let nz = this.z + (f.z * s + k.z) * dt;
 
     // zu steil? Dann bleibt das Auto stehen
     const t = this.world.terrain;
     const h1 = t.heightAt(nx, nz);
     const dist = Math.hypot(nx - this.x, nz - this.z);
     // Steigung über 2 m gemessen, damit kleine Kanten (Strassenrand, Brückenende) nicht blockieren
-    const dir = Math.sign(s) || 1;
-    const ga = t.heightAt(this.x - f.x * dir * 0.5, this.z - f.z * dir * 0.5), gb = t.heightAt(this.x + f.x * dir * 1.5, this.z + f.z * dir * 1.5);
+    const mvx = (nx - this.x) / (dist || 1), mvz = (nz - this.z) / (dist || 1);
+    const ga = t.heightAt(this.x - mvx * 0.5, this.z - mvz * 0.5), gb = t.heightAt(this.x + mvx * 1.5, this.z + mvz * 1.5);
     let blocked = dist > 1e-4 && (gb - ga) / 2 > 0.75;
+
+    // Laternen: mit genug Tempo fallen sie um
+    const vx = f.x * s + k.x, vz = f.z * s + k.z, v = Math.hypot(vx, vz);
+    if (!blocked && this.world.lampsNear) {
+      for (const L of this.world.lampsNear(nx, nz, 3.2)) {
+        const lx = L.x - nx, lz = L.z - nz;
+        const u = lx * f.x + lz * f.z, w = lx * f.z - lz * f.x;
+        if (Math.abs(u) > HL + 0.2 || Math.abs(w) > HW + 0.2) continue;
+        if (v > 7) {
+          this.world.knockLamp(L, vx, vz, v);
+          s *= 0.8; k.x *= 0.8; k.z *= 0.8;
+          this.bump = 0.25;
+        }
+      }
+    }
 
     // Hindernisse: zwei Kreise vorne und hinten
     if (!blocked) {
       for (const off of [1.35, -1.35]) {
         const cx = nx + f.x * off, cz = nz + f.z * off;
         const r = this.world.colliders.resolve(cx, cz, 1.0, h1 + 0.2, 0.1, 1.4);
-        if (r.hit) { blocked = true; break; }
+        // nur blockieren, wenn man sich hineinbewegt (vom Hindernis weg geht immer)
+        if (r.hit && (r.x - cx) * (nx - this.x) + (r.z - cz) * (nz - this.z) < 1e-6) { blocked = true; break; }
       }
     }
-    // andere Autos
+    // andere Autos: Stoss mit Impuls, beide werden weggestossen
+    let hitCar = false;
     if (!blocked && Car.all) {
       for (const o of Car.all) {
         if (o === this || Math.abs(o.x - nx) > 6 || Math.abs(o.z - nz) > 6) continue;
-        // echte Kollision der Karosserien (gedrehte Rechtecke), nur wenn man sich weiter hineinschiebt
         const now = carOverlap(this.x, this.z, this.heading, o.x, o.z, o.heading);
         const next = carOverlap(nx, nz, this.heading, o.x, o.z, o.heading);
         if (next > 0 && next >= now - 1e-4) {
-          blocked = true;
-          // das andere Auto wird ein Stück mitgeschoben
-          if (!o.hasDriver && Math.abs(s) > 2) o.push = { x: f.x * s * 0.35, z: f.z * s * 0.35 };
+          blocked = true; hitCar = true;
+          s = this.collide(o, s, nx, nz);
           break;
         }
       }
     }
     if (Math.abs(nx) > this.world.half - 6 || Math.abs(nz) > this.world.half - 6) blocked = true;
 
-    if (blocked) {
-      if (Math.abs(s) > 6) this.bump = 0.25;
+    if (blocked && !hitCar) {
+      if (Math.abs(s) > 6 || Math.hypot(k.x, k.z) > 6) this.bump = 0.25;
       s = -s * 0.25;
-    } else {
+      k.x *= -0.25; k.z *= -0.25;
+    } else if (!blocked) {
       this.x = nx; this.z = nz;
+    }
+    // Rutschen quer zur Fahrtrichtung bremst stark (Reifen haften)
+    const kl = Math.hypot(k.x, k.z);
+    if (kl > 0) {
+      const nk = Math.max(0, kl - (5 + kl * 0.8) * dt) / kl;
+      k.x *= nk; k.z *= nk;
     }
     this.speed = s;
     this.bump = Math.max(0, this.bump - dt);
-    this.applyPush(dt);
 
     // Räder drehen und lenken
     for (const w of this.wheels) w.rotation.x += s / 0.34 * dt;
@@ -120,19 +151,43 @@ export class Car {
     this.placeOnGround();
   }
 
-  // Auto an das Gelände anpassen (neigen nach vorne/hinten und zur Seite)
-  // Wird das Auto angefahren, rutscht es ein Stück weg
-  applyPush(dt) {
-    const p = this.push;
-    if (!p || this.traffic) { this.push = null; return; }
-    const nx = this.x + p.x * dt, nz = this.z + p.z * dt;
-    const free = !this.world.colliders.resolve(nx, nz, 1.0, this.world.terrain.heightAt(nx, nz) + 0.2, 0.1, 1.4).hit
-      && Math.abs(nx) < this.world.half - 6 && Math.abs(nz) < this.world.half - 6
-      && !(Car.all || []).some((o) => o !== this && carOverlap(nx, nz, this.heading, o.x, o.z, o.heading) > carOverlap(this.x, this.z, this.heading, o.x, o.z, o.heading) + 1e-4);
-    if (free) { this.x = nx; this.z = nz; }
-    const k = Math.max(0, 1 - dt * 4);
-    p.x *= k; p.z *= k;
-    if (!free || Math.hypot(p.x, p.z) < 0.1) this.push = null;
+  /**
+   * Stoss zwischen diesem Auto (Tempo s) und Auto o. Gleiche Masse, etwas elastisch.
+   * Gibt das neue Vorwärtstempo zurück; o bekommt den Rest als Schub.
+   */
+  collide(o, s, nx, nz) {
+    const f = this.forward, g = o.forward;
+    const os = o.traffic ? o.traffic.speed : o.speed;
+    const vax = f.x * s + this.kick.x, vaz = f.z * s + this.kick.z;
+    const vbx = g.x * os + o.kick.x, vbz = g.z * os + o.kick.z;
+    // Stossrichtung: von der Mitte dieses Autos zum Berührungspunkt bzw. zur Mitte des anderen
+    const ox = this.x, oz = this.z;
+    this.x = nx; this.z = nz;
+    const c = contactPoint(this, o);
+    this.x = ox; this.z = oz;
+    let n = { x: o.x - this.x, z: o.z - this.z };
+    const nl = Math.hypot(n.x, n.z) || 1; n.x /= nl; n.z /= nl;
+    const rel = (vax - vbx) * n.x + (vaz - vbz) * n.z;
+    if (rel <= 0) return s;
+    const j = (1 + 0.3) * rel / 2;
+    if (j > 4) this.bump = o.bump = 0.25;
+    // dieses Auto
+    const ax = vax - n.x * j, az = vaz - n.z * j;
+    const ns = ax * f.x + az * f.z;
+    this.kick.x = ax - f.x * ns; this.kick.z = az - f.z * ns;
+    this.spin += spinFrom(this, c, -n.x * j, -n.z * j);
+    // das andere Auto: Verkehr hält bei einem harten Stoss an und wird zum normalen Auto
+    if (o.traffic) {
+      if (j < 2) { o.traffic.speed = 0; return ns; }
+      o.traffic = null;
+      o.speed = os;
+    }
+    const bx = vbx + n.x * j, bz = vbz + n.z * j;
+    const bs = bx * g.x + bz * g.z;
+    o.speed = bs;
+    o.kick.x = bx - g.x * bs; o.kick.z = bz - g.z * bs;
+    o.spin += spinFrom(o, c, n.x * j, n.z * j);
+    return ns;
   }
 
   placeOnGround() {
@@ -226,6 +281,29 @@ function buildBody(color) {
 
 // Überlappung zweier Autos (Rechteck 1.9 × 4.5 m). Rückgabe: Eindringtiefe in m (0 = frei).
 const HW = 0.95, HL = 2.25;
+
+// Ecke eines Autos, die am tiefsten im anderen steckt (sonst die Mitte zwischen beiden)
+function contactPoint(a, b) {
+  let best = null, bestD = 0;
+  for (const [p, q] of [[a, b], [b, a]]) {
+    const f = p.forward, qf = q.forward;
+    for (const [u, w] of [[HL, HW], [HL, -HW], [-HL, HW], [-HL, -HW]]) {
+      const x = p.x + f.x * u + f.z * w, z = p.z + f.z * u - f.x * w;
+      const dx = x - q.x, dz = z - q.z;
+      const lu = Math.abs(dx * qf.x + dz * qf.z), lw = Math.abs(dx * qf.z - dz * qf.x);
+      const d = Math.min(HL - lu, HW - lw);
+      if (d > bestD) { bestD = d; best = { x, z }; }
+    }
+  }
+  return best || { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
+}
+
+// Drehung durch einen Stoss am Punkt c (Trägheit eines 4.5 m langen Autos)
+function spinFrom(car, c, jx, jz) {
+  const rx = c.x - car.x, rz = c.z - car.z;
+  const w = (rz * jx - rx * jz) / 2.0;
+  return Math.max(-3, Math.min(3, w * 0.9));
+}
 export function carOverlap(ax, az, ah, bx, bz, bh) {
   const dx = bx - ax, dz = bz - az;
   if (dx * dx + dz * dz > 30) return 0;

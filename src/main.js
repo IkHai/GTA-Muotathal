@@ -183,6 +183,7 @@ function frame(now) {
   if (!currentCar) player.update(dt, input, follow.yaw);
   for (const c of cars) if (!c.traffic) c.update(dt, input);
   traffic.update(dt, player, currentCar, cars);
+  world.updateLamps(dt);
   if (currentCar) { player.position.set(currentCar.x, currentCar.mesh.position.y, currentCar.z); }
 
   const target = currentCar ? currentCar.mesh.position : player.position;
