@@ -122,9 +122,10 @@ async function terrainSwisstopo() {
   return { H, source: 'swissALTI3D © swisstopo' };
 }
 
-async function terrainAwsTiles() {
+async function terrainAwsTiles(size = SIZE, res = RES, z = 14) {
   const { PNG } = await import('pngjs');
-  const z = 14;
+  const n = size / res + 1;
+  const e0 = E0 - size / 2, n1 = N0 + size / 2;
   const lon2x = (lon) => (lon + 180) / 360 * 2 ** z;
   const lat2y = (lat) => (1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * 2 ** z;
   const cache = new Map();
@@ -143,10 +144,10 @@ async function terrainAwsTiles() {
     const o = (py * 256 + px) * 4;
     return png.data[o] * 256 + png.data[o + 1] + png.data[o + 2] / 256 - 32768;
   };
-  const H = new Float32Array(N * N);
-  for (let j = 0; j < N; j++) {
-    for (let i = 0; i < N; i++) {
-      const w = lv95ToWgs(minE + i * RES, maxN - j * RES);
+  const H = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const w = lv95ToWgs(e0 + i * res, n1 - j * res);
       // bilinear
       const fx = lon2x(w.lon) - 0.5 / 256, fy = lat2y(w.lat) - 0.5 / 256;
       const d = 1 / 256;
@@ -154,7 +155,7 @@ async function terrainAwsTiles() {
       const u = (fx - x0) / d, v = (fy - y0) / d;
       const a = await sample(x0 + 1e-9, y0 + 1e-9), b = await sample(x0 + d + 1e-9, y0 + 1e-9);
       const c2 = await sample(x0 + 1e-9, y0 + d + 1e-9), e = await sample(x0 + d + 1e-9, y0 + d + 1e-9);
-      H[j * N + i] = (a * (1 - u) + b * u) * (1 - v) + (c2 * (1 - u) + e * u) * v;
+      H[j * n + i] = (a * (1 - u) + b * u) * (1 - v) + (c2 * (1 - u) + e * u) * v;
     }
   }
   return { H, source: 'AWS Terrain Tiles (Mapzen/Tilezen, u.a. SRTM und EU-DEM)' };
@@ -377,10 +378,21 @@ async function main() {
   await fs.writeFile(path.join(OUT, 'terrain.bin'), Buffer.from(heights.buffer));
   await fs.writeFile(path.join(OUT, 'landcover.bin'), Buffer.from(land.buffer));
   await fs.writeFile(path.join(OUT, 'osm.json'), JSON.stringify(features));
+
+  // Kulisse: grosser Ausschnitt rundherum, grob aufgelöst (nur zum Anschauen)
+  const BG_SIZE = 16000, BG_RES = 80;
+  const bg = (await terrainAwsTiles(BG_SIZE, BG_RES, 12)).H;
+  let bgLo = Infinity;
+  for (const v of bg) bgLo = Math.min(bgLo, v);
+  const bgBase = Math.floor(bgLo) - 1;
+  const bgU16 = new Uint16Array(bg.length);
+  for (let k = 0; k < bg.length; k++) bgU16[k] = Math.round((bg[k] - bgBase) * 10);
+  await fs.writeFile(path.join(OUT, 'backdrop.bin'), Buffer.from(bgU16.buffer));
   const meta = {
     name: 'Muotathal',
     size: SIZE, res: RES, n: N,
     baseHeight: base, minHeight: lo, maxHeight: hi,
+    backdrop: { size: BG_SIZE, res: BG_RES, n: BG_SIZE / BG_RES + 1, baseHeight: bgBase, source: 'AWS Terrain Tiles (Tilezen; u.a. SRTM, EU-DEM)' },
     lv95: { E0, N0, minE, maxE, minN, maxN },
     center: CENTER_WGS,
     created: new Date().toISOString(),
