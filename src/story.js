@@ -220,14 +220,37 @@ export class Story {
   setStep(step) {
     this.step = step;
     const lm = this.world.landmarks || {};
+    const inn = this.game && this.game.interiors;
+    const S = (inn && inn.club && inn.club.spots) || null, H = (inn && inn.block && inn.block.spots) || null;
     if (step === 'park') this.setObjective("Versteck den Wagen auf dem Parkplatz hinter dem Hell's Club", lm.club.parking, 4.5, { car: true });
-    else if (step === 'club') this.setObjective("Steig aus und geh in den Hell's Club", lm.club.door, 1.8, { foot: true });
-    else if (step === 'home') this.setObjective('Geh zu deiner Wohnung im Block gegenüber', lm.home.door, 1.8, { foot: true });
+    else if (step === 'club') {
+      if (S) this.setObjective("Geh in den Hell's Club", lm.club.entry, 1.6, { foot: true, hold: true });
+      else this.setObjective("Steig aus und geh in den Hell's Club", lm.club.door, 1.8, { foot: true });
+    } else if (step === 'bruno') this.setObjective('Sprich mit Bruno an der Bar', S.bruno, 1.3, { foot: true });
+    else if (step === 'home') {
+      if (H) this.setObjective('Geh zu deiner Wohnung im Block gegenüber', lm.home.door, 1.8, { foot: true, hold: true });
+      else this.setObjective('Geh zu deiner Wohnung im Block gegenüber', lm.home.door, 1.8, { foot: true });
+    } else if (step === 'flat') this.setObjective('Hinauf in den 3. Stock', H.up, 1.0, { foot: true, hold: true });
+    else if (step === 'bed') this.setObjective('Leg dich ins Bett', H.bed, 1.2, { foot: true });
     else this.clearObjective();
   }
 
+  // Innenraum betreten (von den Innenräumen gemeldet)
+  onEnter(where) {
+    if (this.step === 'club' && where === 'club') this.setStep('bruno');
+    else if (this.step === 'home' && where === 'block') this.setStep('flat');
+    else if ((this.step === 'flat' || this.step === 'home') && where === 'flat') this.setStep('bed');
+  }
+
+  // Speichern im Bett: aktueller Kapitelstand
+  saveHere() {
+    const step = this.step === 'bed' || this.step === 'flat' || !this.step ? 'free' : this.step;
+    if (this.step === 'bed' || this.step === 'flat') this.setStep(null);
+    writeSave({ v: 1, chapter: 1, step: step === 'free' ? 'free' : 'home' });
+  }
+
   setObjective(text, p, radius, need = {}) {
-    this.objective = { text, x: p.x, z: p.z, radius, need };
+    this.objective = { text, x: p.x, y: p.y, z: p.z, radius, need };
     this.ui.obj.textContent = text;
     this.ui.obj.classList.add('show');
     if (!this.marker) {
@@ -238,7 +261,7 @@ export class Story {
       this.scene.add(this.marker);
     }
     this.marker.scale.set(radius * 0.8, need.car ? 3 : 2.2, radius * 0.8);
-    this.marker.position.set(p.x, this.world.terrain.heightAt(p.x, p.z) - 0.2, p.z);
+    this.marker.position.set(p.x, (p.y !== undefined ? p.y : this.world.terrain.heightAt(p.x, p.z)) - 0.2, p.z);
     this.marker.visible = true;
   }
 
@@ -254,11 +277,14 @@ export class Story {
     if (!o || this.active) return null;
     if (this.marker) this.marker.material.opacity = 0.24 + Math.sin(performance.now() / 300) * 0.08;
     if (Math.hypot(pos.x - o.x, pos.z - o.z) > o.radius) return null;
+    if (o.y !== undefined && Math.abs(pos.y - o.y) > 1.6) return null;
+    if (o.need.hold) return null;   // hier muss man „Betreten“ tippen
     if (o.need.car && (!car || Math.abs(car.speed) > 1.5)) return null;
     if (o.need.foot && car) return null;
     if (this.step === 'park') { this.setStep('club'); return 'Wagen versteckt'; }
-    if (this.step === 'club') { this.clearObjective(); this.startTalk(); return null; }
-    if (this.step === 'home') {
+    if (this.step === 'club' || this.step === 'bruno') { this.clearObjective(); this.startTalk(); return null; }
+    if (this.step === 'home' || this.step === 'bed') {
+      this.step = null;
       this.clearObjective();
       writeSave({ v: 1, chapter: 1, step: 'free' });
       return 'Neue Bleibe gefunden. Kapitel 1 geschafft!';
@@ -269,7 +295,9 @@ export class Story {
   // ---------- Gespräch im Hell's Club ----------
   startTalk() {
     const lm = this.world.landmarks.club;
-    if (!this.room) this.room = buildClubRoom(this.scene, lm, this.world.terrain);
+    const inn = this.game.interiors;
+    if (inn && inn.inside === 'club') this.room = inn.talkRoom();
+    else if (!this.room || this.room.inside) this.room = buildClubRoom(this.scene, lm, this.world.terrain);
     this.mode = 'talk';
     this.active = true;
     this.line = -1;
@@ -277,7 +305,7 @@ export class Story {
     this.room.group.visible = true;
     document.body.classList.add('cutscene');
     this.ui.dialog.classList.add('show');
-    this.game.player.setVisible(false);
+    if (!this.room.inside) this.game.player.setVisible(false);
     this.flash();
     this.focus.copy(this.room.center);
     this.nextLine();
@@ -327,7 +355,12 @@ export class Story {
     this.ui.dialog.classList.remove('show');
     this.game.player.setVisible(true);
     const lm = this.world.landmarks.club;
-    this.placeOnFoot(lm.door, lm.heading + Math.PI, lm.heading);   // Kamera zeigt auf die Fassade
+    if (this.room.inside) {
+      // im Club bleiben, Blick Richtung Ausgang
+      const P = this.game.player;
+      this.game.follow.yaw = P.heading;
+      this.game.follow.focus.set(P.position.x, P.position.y + 1.5, P.position.z);
+    } else this.placeOnFoot(lm.door, lm.heading + Math.PI, lm.heading);   // Kamera zeigt auf die Fassade
     this.flash();
     writeSave({ v: 1, chapter: 1, step: 'home' });
     this.setStep('home');

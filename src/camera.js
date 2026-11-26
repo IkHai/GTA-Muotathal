@@ -13,6 +13,7 @@ export class FollowCamera {
     this.sensitivity = 3.2;   // Drehung pro Bildschirmbreite (Radiant)
     this.focus = new THREE.Vector3();
     this.idle = 10;
+    this.indoor = null;   // Kollisionen eines Innenraums
   }
 
   update(dt, look, target, mode, carHeading, carSpeed) {
@@ -30,7 +31,7 @@ export class FollowCamera {
     this.pitch = Math.min(1.25, Math.max(-0.35, this.pitch + look.y * k));
 
     const inCar = mode === 'car';
-    const wantDist = inCar ? 8.5 + Math.min(3, Math.abs(carSpeed) * 0.08) : 4.6;
+    const wantDist = inCar ? 8.5 + Math.min(3, Math.abs(carSpeed) * 0.08) : this.indoor ? 3.2 : 4.6;
     this.dist += (wantDist - this.dist) * Math.min(1, dt * 3);
     this.height = inCar ? 2.0 : 1.55;
 
@@ -60,8 +61,9 @@ export class FollowCamera {
     for (let i = 1; i <= steps; i++) {
       const d = this.dist * i / steps;
       const x = this.focus.x + dx * d, y = this.focus.y + dy * d, z = this.focus.z + dz * d;
-      if (this.world.terrain.heightAt(x, z, y) + 0.4 > y || this.world.colliders.insideBox(x, y, z)) {
-        allowed = Math.max(0.8, this.dist * (i - 1) / steps);
+      const blocked = this.indoor ? this.indoor.insideBox(x, y, z) : (this.world.terrain.heightAt(x, z, y) + 0.4 > y || this.world.colliders.insideBox(x, y, z));
+      if (blocked) {
+        allowed = Math.max(this.indoor ? 0.4 : 0.8, this.dist * (i - 1) / steps);
         break;
       }
     }
@@ -70,8 +72,10 @@ export class FollowCamera {
 
     const cam = this.camera;
     cam.position.set(this.focus.x + dx * this.curDist, this.focus.y + dy * this.curDist, this.focus.z + dz * this.curDist);
-    const minY = this.world.terrain.heightAt(cam.position.x, cam.position.z, cam.position.y) + 0.35;
-    if (cam.position.y < minY) cam.position.y = minY;
+    if (!this.indoor) {
+      const minY = this.world.terrain.heightAt(cam.position.x, cam.position.z, cam.position.y) + 0.35;
+      if (cam.position.y < minY) cam.position.y = minY;
+    }
     cam.lookAt(this.focus);
   }
 
