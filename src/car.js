@@ -21,11 +21,14 @@ export class Car {
     this.spin = 0;               // Drehung nach einem Zusammenstoss (rad/s)
 
     this.mesh = new THREE.Group();
-    this.body = buildBody(spawn.color);
+    this.model = spawn.model || 'sedan';
+    this.name = this.model === 'suv' ? SUV_NAME : null;
+    this.body = this.model === 'suv' ? buildSuv(spawn.color) : buildBody(spawn.color);
     this.mesh.add(this.body);
 
     // Räder
-    const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 14);
+    const wr = this.model === 'suv' ? 0.37 : 0.34, wb = this.model === 'suv' ? 1.33 : 1.38;
+    const wheelGeo = new THREE.CylinderGeometry(wr, wr, this.model === 'suv' ? 0.24 : 0.22, 14);
     wheelGeo.rotateZ(Math.PI / 2);
     const wheelMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
     const hubMat = new THREE.MeshPhongMaterial({ color: 0x9a9a9a, shininess: 60 });
@@ -33,9 +36,9 @@ export class Car {
     hubGeo.rotateZ(Math.PI / 2);
     this.wheels = [];
     this.frontPivots = [];
-    for (const [x, z, front] of [[-0.8, 1.38, true], [0.8, 1.38, true], [-0.8, -1.38, false], [0.8, -1.38, false]]) {
+    for (const [x, z, front] of [[-0.8, wb, true], [0.8, wb, true], [-0.8, -wb, false], [0.8, -wb, false]]) {
       const pivot = new THREE.Group();
-      pivot.position.set(x, 0.34, z);
+      pivot.position.set(x, wr, z);
       const w = new THREE.Mesh(wheelGeo, wheelMat);
       w.add(new THREE.Mesh(hubGeo, hubMat));
       pivot.add(w);
@@ -271,6 +274,75 @@ export function buildBody(color) {
   }
   trim.box(0, 0.5, -2.27, 0.5, 0.12, 0.02, 0xd8d8d0);                // Nummernschild
   const paintMat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 80, specular: 0x666666 });
+  const glassMat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 120, specular: 0xaabbcc });
+  const trimMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const lightMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+  for (const [b, m] of [[paint, paintMat], [glass, glassMat], [trim, trimMat], [lights, lightMat]]) {
+    const mesh = b.build(m);
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  return group;
+}
+
+// Kompakter Kombi-SUV (eigenes Design, kein echtes Markenzeichen): hoch, Dachreling,
+// Lufthutze auf der Haube, Nebelscheinwerfer, graue Kunststoff-Beplankung unten
+export const SUV_NAME = 'Alpento Wildheuer';
+export function buildSuv(color = 0xb4b8bc) {
+  const group = new THREE.Group();
+  const paint = new Builder(), trim = new Builder(), glass = new Builder(), lights = new Builder();
+  const dark = 0x1c1d1f, clad = 0x4a4d51, rail = 0x2a2c2e, alu = 0xa4a8ac;
+  // Beplankung unten (rundum grau), darüber die lackierte Karosserie
+  trim.shape(frustum(1.8, 4.42, 1.82, 4.46, 0.26), 0, 0.27, 0, 1, 1, 1, clad);
+  paint.shape(frustum(1.82, 4.46, 1.78, 4.36, 0.46), 0, 0.53, 0, 1, 1, 1, color);
+  // Kotflügelverbreiterungen um die Räder
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    trim.box(sx * 0.9, 0.62, sz * 1.33, 0.06, 0.1, 1.0, clad);
+    for (const dz of [-0.48, 0.48]) trim.box(sx * 0.9, 0.42, sz * 1.33 + dz, 0.06, 0.34, 0.1, clad);
+  }
+  // Motorhaube mit Lufthutze
+  paint.shape(frustum(1.74, 1.12, 1.64, 1.0, 0.1), 0, 0.99, 1.64, 1, 1, 1, color);
+  paint.shape(frustum(0.62, 0.5, 0.5, 0.38, 0.08), 0, 1.08, 1.52, 1, 1, 1, color);
+  trim.box(0, 1.12, 1.76, 0.46, 0.05, 0.03, dark);
+  // hohe Kabine mit steilem Heck
+  glass.shape(frustum(1.7, 3.12, 1.5, 2.6, 0.64, -0.2), 0, 0.99, -0.46, 1, 1, 1, 0x3a4c5a);
+  // Heckklappe unter der Scheibe und Fensterrahmen
+  paint.box(0, 1.08, -2.0, 1.62, 0.2, 0.08, color);
+  trim.box(0, 1.0, -0.46, 1.71, 0.025, 3.1, alu);
+  paint.shape(frustum(1.52, 2.62, 1.48, 2.54, 0.05), 0, 1.63, -0.66, 1, 1, 1, color);
+  // Säulen: A und D in Wagenfarbe, B schwarz
+  for (const s of [-1, 1]) {
+    trim.box(s * 0.79, 1.31, -0.32, 0.05, 0.62, 0.12, dark);
+    paint.box(s * 0.78, 1.31, -1.86, 0.06, 0.62, 0.2, color);
+  }
+  // Dachreling mit Füssen
+  for (const s of [-1, 1]) {
+    trim.box(s * 0.64, 1.76, -0.66, 0.05, 0.05, 2.24, rail);
+    for (const z of [0.42, -0.66, -1.74]) trim.box(s * 0.64, 1.71, z, 0.07, 0.08, 0.12, rail);
+  }
+  paint.box(0, 1.62, -1.94, 1.36, 0.05, 0.18, color);                 // Dachspoiler hinten
+  // Front: Grill, Scheinwerfer, Stossfänger mit Nebelscheinwerfern und Unterfahrschutz
+  trim.box(0, 0.84, 2.2, 0.96, 0.24, 0.05, 0x1a1a1c);
+  for (let k = 0; k < 3; k++) trim.box(0, 0.76 + k * 0.08, 2.225, 0.9, 0.015, 0.02, 0x3a3c3e);
+  trim.box(0, 0.97, 2.2, 1.0, 0.03, 0.06, alu);
+  trim.box(0, 0.5, 2.23, 1.84, 0.34, 0.12, clad);
+  trim.box(0, 0.33, 2.27, 0.9, 0.06, 0.08, alu);
+  // Heck: grauer Stossfänger, Heckscheibe in der Klappe, Kennzeichen
+  trim.box(0, 0.5, -2.23, 1.84, 0.34, 0.12, clad);
+  trim.box(0, 0.74, -2.2, 0.52, 0.12, 0.02, 0xd8d8d0);
+  trim.box(0, 0.98, -2.19, 1.1, 0.03, 0.03, alu);
+  for (const s of [-1, 1]) {
+    lights.box(s * 0.6, 0.89, 2.2, 0.42, 0.14, 0.05, 0xe8e2c8);        // Scheinwerfer
+    lights.box(s * 0.62, 0.48, 2.3, 0.2, 0.09, 0.03, 0xfff0c0);        // Nebelscheinwerfer
+    trim.box(s * 0.62, 0.48, 2.29, 0.28, 0.15, 0.03, 0x1a1a1c);
+    lights.box(s * 0.7, 0.9, -2.2, 0.3, 0.24, 0.05, 0x9a1810);         // Rücklichter
+    lights.box(s * 0.7, 0.8, -2.215, 0.3, 0.05, 0.03, 0xd08a30);
+    trim.box(s * 0.94, 1.1, 0.62, 0.1, 0.12, 0.18, dark);              // Spiegel
+    trim.box(s * 0.9, 0.86, 0.2, 0.02, 0.03, 0.18, alu);               // Türgriffe
+    trim.box(s * 0.9, 0.86, -0.95, 0.02, 0.03, 0.18, alu);
+    trim.box(s * 0.915, 0.6, 0, 0.03, 0.12, 1.6, clad);                // Seitenschutzleiste
+  }
+  const paintMat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: 0x777777 });
   const glassMat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 120, specular: 0xaabbcc });
   const trimMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   const lightMat = new THREE.MeshBasicMaterial({ vertexColors: true });

@@ -361,6 +361,16 @@ export function posterTex() {
 
 // Treppe von einer Tür (Höhe topY, lokal) bis hinunter auf den echten Boden davor.
 // walk bekommt begehbare Stufen [x, z, halbe Breite, halbe Tiefe, Oberkante]. Gibt das z am Fuss zurück.
+// Bodenhöhe (lokal, relativ zu gMin) unter einem Gegenstand: tiefster Punkt der Grundfläche
+function groundLocal(F, terrain, x, z, hx = 0.4, hz = 0.4) {
+  let g = Infinity;
+  for (const [dx, dz] of [[0, 0], [-hx, -hz], [hx, -hz], [-hx, hz], [hx, hz]]) {
+    const [wx, wz] = F.toWorld(x + dx, z + dz);
+    g = Math.min(g, terrain.heightAt(wx, wz) - F.gMin);
+  }
+  return Math.min(0, g);
+}
+
 function frontSteps(B, walk, F, terrain, x, topY, width, zStart) {
   const [gx, gz] = F.toWorld(x, zStart - 1.5);
   const g = terrain.heightAt(gx, gz) - F.gMin;
@@ -540,11 +550,13 @@ export function buildClub(pts, ctx) {
   B.box(hw + 0.08, SY + 2.3, doorZ, 0.12, 0.12, 1.25, 0x3a2416);
   // Mülltonnen neben der Treppe, Klimagerät hinten
   for (const [z, c] of [[-0.6, 0x3a4a3e], [-1.6, 0x2e3a34], [0.4, 0x2a2e30]]) {
-    B.box(sx + 1.6, 0.6, z, 0.75, 1.2, 0.85, c);
-    B.box(sx + 1.6, 1.24, z - 0.05, 0.8, 0.08, 0.95, 0x1e2422);
+    const g = groundLocal(F, terrain, sx + 1.6, z) - 0.05;
+    B.box(sx + 1.6, g + 0.6, z, 0.75, 1.2, 0.85, c);
+    B.box(sx + 1.6, g + 1.24, z - 0.05, 0.8, 0.08, 0.95, 0x1e2422);
+    for (const ox of [-0.25, 0.25]) B.shape(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 8), sx + 1.6 + ox, g + 0.07, z + 0.4, 1, 1, 1, 0x111111, 0, 0, Math.PI / 2);
   }
   B.box(X(-3), 2.2, D + 0.25, 0.9, 0.6, 0.45, 0xcfcbc0);
-  for (const [x, z, s] of [[sx + 2.5, -1.0, 0.4], [sx + 2.4, 0.2, 0.34]]) B.shape(new THREE.SphereGeometry(1, 7, 5), x, s * 0.8, z, s, s * 0.9, s, 0x161616);
+  for (const [x, z, s] of [[sx + 2.5, -1.0, 0.4], [sx + 2.4, 0.2, 0.34]]) B.shape(new THREE.SphereGeometry(1, 7, 5), x, groundLocal(F, terrain, x, z, 0.3, 0.3) + s * 0.8, z, s, s * 0.9, s, 0x161616);
 
   const plain = B.build(new THREE.MeshLambertMaterial({ vertexColors: true }), 0.5);
   plain.castShadow = true; plain.receiveShadow = true;
@@ -692,7 +704,11 @@ export function buildBlock(pts, ctx) {
   // Fallrohre, Satellitenschüssel, Mülltonnen
   for (const s of [-1, 1]) B.box(s * (W / 2 - 0.12), H / 2, -0.12, 0.12, H + 1.5, 0.12, 0x5a5a58);
   B.shape(new THREE.SphereGeometry(0.45, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), W / 2 - 2, G0 + 3 * FH + 1.6, -0.35, 1, 1, 0.35, 0xd8d8d0, 0, Math.PI / 2);
-  for (let k = 0; k < 3; k++) B.box(ex + 2.6 + k * 0.75, 0.55, -0.6, 0.6, 1.1, 0.7, k % 2 ? 0x3a4a3a : 0x4a4e52);
+  for (let k = 0; k < 3; k++) {
+    const bx = ex + 2.6 + k * 0.75, g = groundLocal(F, terrain, bx, -0.6, 0.3, 0.35) - 0.05;
+    B.box(bx, g + 0.55, -0.6, 0.6, 1.1, 0.7, k % 2 ? 0x3a4a3a : 0x4a4e52);
+    B.box(bx, g + 1.13, -0.63, 0.64, 0.06, 0.78, 0x22282a);
+  }
   const plain = B.build(new THREE.MeshLambertMaterial({ vertexColors: true }), 0.5);
   plain.castShadow = true; plain.receiveShadow = true;
   group.add(plain);

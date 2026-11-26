@@ -292,7 +292,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
     const d = Math.hypot(p.x - s0.x, p.z - s0.z);
     if (carSpots.length === 0 ? d < 10 || d > 30 : carSpots.every((c) => Math.hypot(c.x - p.x, c.z - p.z) > 250) && d < 1500) {
       const sp = side(p, -(p.w / 2 + 1.6));
-      carSpots.push({ x: sp.x, z: sp.z, heading: p.dir, color: colors[carSpots.length] });
+      carSpots.push({ x: sp.x, z: sp.z, heading: p.dir, color: carSpots.length === 0 ? 0xb4b8bc : colors[carSpots.length], model: carSpots.length === 0 ? 'suv' : 'sedan' });
     }
   }
 

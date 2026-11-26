@@ -26,31 +26,10 @@ export class Minimap {
       }
     }
     g.putImageData(img, 0, 0);
-    const toPx = (v) => (v + this.half) * this.scale;
-    const line = (p, w, color) => {
-      g.strokeStyle = color; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath();
-      for (let i = 0; i < p.length; i += 2) {
-        const x = toPx(p[i] / 10), y = toPx(p[i + 1] / 10);
-        if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
-      }
-      g.stroke();
-    };
-    for (const w of world.osm.water) line(w.p, Math.max(1, w.w * this.scale), '#3f86b8');
-    g.fillStyle = '#b9a184';
-    for (const b of world.osm.buildings) {
-      g.beginPath();
-      for (let i = 0; i < b.p.length; i += 2) {
-        const x = toPx(b.p[i] / 10), y = toPx(b.p[i + 1] / 10);
-        if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
-      }
-      g.closePath(); g.fill();
-    }
-    for (const r of world.osm.roads) {
-      const big = ['primary', 'secondary', 'tertiary', 'trunk'].includes(r.t);
-      if (['path', 'footway', 'steps', 'bridleway'].includes(r.t)) line(r.p, 0.8, 'rgba(240,230,200,.55)');
-      else line(r.p, big ? 2.6 : 1.6, big ? '#f1e3b0' : '#e6e1d2');
-    }
-    this.map = map;
+    // Nur das Gelände kommt als Bild; Wasser, Häuser und Strassen werden als Pfade in Metern
+    // gezeichnet, damit die Karte beim Hineinzoomen scharf bleibt.
+    this.land = map;
+    this.vec = buildVectors(world);
   }
 
   update(dt, pos, heading, camYaw, cars) {
@@ -67,8 +46,11 @@ export class Minimap {
     ctx.translate(c, c);
     ctx.rotate(Math.PI + camYaw);
     ctx.scale(zoom, zoom);
-    ctx.drawImage(this.map, -(pos.x + this.half) * this.scale, -(pos.z + this.half) * this.scale);
+    ctx.drawImage(this.land, -(pos.x + this.half) * this.scale, -(pos.z + this.half) * this.scale);
     ctx.scale(this.scale, this.scale);
+    ctx.translate(-pos.x, -pos.z);
+    drawVectors(ctx, this.vec, 1 / (zoom * this.scale), 0.55, pos, 400);
+    ctx.translate(pos.x, pos.z);
     if (this.zone) this.zone.draw(ctx, (x) => x - pos.x, (z) => z - pos.z, 2.5 / (zoom * this.scale), false);
     for (const car of cars) {
       if (car.hasDriver) continue;
@@ -169,6 +151,94 @@ export class Minimap {
 }
 
 // Grosse Karte zum Aufklappen (Minikarte antippen oder Taste M). Norden ist oben.
+// ---------- Vektorkarte (bleibt beim Hineinzoomen scharf) ----------
+const BIG = ['primary', 'secondary', 'tertiary', 'trunk'];
+const FOOT = ['path', 'footway', 'steps', 'bridleway', 'cycleway'];
+function buildVectors(world) {
+  const pathOf = (p, close) => {
+    const P = new Path2D();
+    for (let i = 0; i < p.length; i += 2) (i ? P.lineTo(p[i] / 10, p[i + 1] / 10) : P.moveTo(p[i] / 10, p[i + 1] / 10));
+    if (close) P.closePath();
+    return P;
+  };
+  const bbox = (p) => {
+    let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+    for (let i = 0; i < p.length; i += 2) { a = Math.min(a, p[i] / 10); c = Math.max(c, p[i] / 10); b = Math.min(b, p[i + 1] / 10); d = Math.max(d, p[i + 1] / 10); }
+    return [a, b, c, d];
+  };
+  const v = { water: [], buildings: [], roads: { big: new Path2D(), small: new Path2D(), track: new Path2D(), foot: new Path2D() }, names: [] };
+  for (const w of world.osm.water) v.water.push({ P: pathOf(w.p), w: Math.max(1.5, w.w || 2) });
+  for (const b of world.osm.buildings) v.buildings.push({ P: pathOf(b.p, true), bb: bbox(b.p) });
+  const seen = new Set();
+  for (const r of world.osm.roads) {
+    const kind = BIG.includes(r.t) ? 'big' : FOOT.includes(r.t) ? 'foot' : ['track', 'service'].includes(r.t) ? 'track' : 'small';
+    v.roads[kind].addPath(pathOf(r.p));
+    // Strassenname am längsten geraden Stück (einmal pro Name und Gegend)
+    if (r.n && kind !== 'foot') {
+      let best = 0, bi = 0;
+      for (let i = 0; i + 3 < r.p.length; i += 2) { const l = Math.hypot(r.p[i + 2] - r.p[i], r.p[i + 3] - r.p[i + 1]); if (l > best) { best = l; bi = i; } }
+      const x = (r.p[bi] + r.p[bi + 2]) / 20, z = (r.p[bi + 1] + r.p[bi + 3]) / 20;
+      const key = r.n + Math.round(x / 250) + ',' + Math.round(z / 250);
+      if (best / 10 > 35 && !seen.has(key)) {
+        seen.add(key);
+        let a = Math.atan2(r.p[bi + 3] - r.p[bi + 1], r.p[bi + 2] - r.p[bi]);
+        if (a > Math.PI / 2) a -= Math.PI; else if (a < -Math.PI / 2) a += Math.PI;
+        v.names.push({ n: r.n, x, z, a, len: best / 10 });
+      }
+    }
+  }
+  return v;
+}
+
+// g ist auf Weltmeter eingestellt; k = Meter pro Bildschirmpixel. view/rad: nur Häuser in der Nähe
+function drawVectors(g, v, k, px, view, rad) {
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  g.setLineDash([]);
+  for (const w of v.water) {
+    g.strokeStyle = '#3a77a8'; g.lineWidth = Math.max(w.w + 1.2, 2.6 * px * k); g.stroke(w.P);
+    g.strokeStyle = '#5b9fd0'; g.lineWidth = Math.max(w.w, 1.4 * px * k); g.stroke(w.P);
+  }
+  // Häuser, sobald sie gross genug sind
+  if (k < 3) {
+    g.fillStyle = '#d3c2a4'; g.strokeStyle = '#7d6b52'; g.lineWidth = Math.min(0.7, 1.2 * px * k);
+    for (const b of v.buildings) {
+      if (view && (b.bb[2] < view.x - rad || b.bb[0] > view.x + rad || b.bb[3] < view.z - rad || b.bb[1] > view.z + rad)) continue;
+      g.fill(b.P); if (k < 1.2) g.stroke(b.P);
+    }
+  }
+  const R = v.roads;
+  // dunkler Rand, darüber hell (wie ein Stadtplan)
+  g.strokeStyle = '#2a2a28';
+  g.lineWidth = Math.max(4.2, 3.4 * px * k); g.stroke(R.track);
+  g.lineWidth = Math.max(6.2, 4.6 * px * k); g.stroke(R.small);
+  g.lineWidth = Math.max(8.6, 6.4 * px * k); g.stroke(R.big);
+  g.strokeStyle = '#c7bfa8'; g.lineWidth = Math.max(2.8, 2.0 * px * k); g.stroke(R.track);
+  g.strokeStyle = '#efeee8'; g.lineWidth = Math.max(4.8, 3.0 * px * k); g.stroke(R.small);
+  g.strokeStyle = '#f5d66e'; g.lineWidth = Math.max(7, 4.6 * px * k); g.stroke(R.big);
+  if (k < 2.5) {
+    g.strokeStyle = 'rgba(250,244,225,.85)'; g.lineWidth = Math.max(1.1, 1.3 * px * k);
+    g.setLineDash([3 * px * k, 3 * px * k]); g.stroke(R.foot); g.setLineDash([]);
+  }
+}
+
+// Orte mit Symbol (Kreis mit Zeichen und Name daneben)
+const ICONS = {
+  club: ['#e0388a', '♫'], home: ['#3a8a4a', '⌂'], imbiss: ['#e07a20', '🍴'], shop: ['#7a4ac0', '$'],
+  fountain: ['#3a7ac0', '≈'], car: ['#f2b632', '▣'],
+};
+function drawIcon(g, x, y, id, name, s, showName) {
+  const [col, sym] = ICONS[id] || ['#666', '•'];
+  g.fillStyle = '#111'; g.beginPath(); g.arc(x, y, 11 * s, 0, Math.PI * 2); g.fill();
+  g.fillStyle = col; g.beginPath(); g.arc(x, y, 9 * s, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#fff'; g.font = `bold ${11 * s}px Arial`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(sym, x, y + 0.5 * s);
+  if (showName && name) {
+    g.font = `bold ${12 * s}px Arial`; g.textAlign = 'left';
+    g.lineWidth = 3 * s; g.strokeStyle = 'rgba(0,0,0,.85)'; g.strokeText(name, x + 14 * s, y);
+    g.fillStyle = '#fff'; g.fillText(name, x + 14 * s, y);
+  }
+}
+
 export class BigMap {
   constructor(minimap, world) {
     this.mini = minimap;
@@ -183,7 +253,7 @@ export class BigMap {
     for (const b of document.querySelectorAll('#bigmap-zoom div')) {
       b.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
-        this.zoom = Math.max(1, Math.min(6, this.zoom * (b.dataset.z === '1' ? 1.6 : 1 / 1.6)));
+        this.zoom = Math.max(1, Math.min(16, this.zoom * (b.dataset.z === '1' ? 1.6 : 1 / 1.6)));
         this.dirty = true;
       });
     }
@@ -211,6 +281,13 @@ export class BigMap {
     this.el.classList.add('open');
     this.cx = this.pos ? this.pos.x : 0; this.cz = this.pos ? this.pos.z : 0;
     this.zoom = 1.6;
+    // Kapitel 1: Karte zeigt den Stalden-Ausschnitt, ganz sichtbar
+    if (this.zone && this.zone.active) {
+      const [x0, z0, x1, z1] = this.zone.bbox();
+      this.cx = (x0 + x1) / 2; this.cz = (z0 + z1) / 2;
+      const fit = Math.min(innerWidth / (x1 - x0), innerHeight / (z1 - z0)) * 0.9;
+      this.zoom = Math.max(1, fit * (this.world.half * 2) / (Math.min(innerWidth, innerHeight) * 0.92));
+    }
     this.dirty = true;
   }
 
@@ -224,28 +301,80 @@ export class BigMap {
     if (this.canvas.width !== W || this.canvas.height !== H) { this.canvas.width = W; this.canvas.height = H; }
     const g = this.ctx, half = this.world.half;
     const k = this.metersPerPx() / dpr;            // Meter pro Canvas-Pixel
-    const lim = half;
-    this.cx = Math.max(-lim, Math.min(lim, this.cx)); this.cz = Math.max(-lim, Math.min(lim, this.cz));
+    let lim = [-half, -half, half, half];
+    if (this.zone && this.zone.active) lim = this.zone.bbox();
+    this.cx = Math.max(lim[0], Math.min(lim[2], this.cx)); this.cz = Math.max(lim[1], Math.min(lim[3], this.cz));
     const toX = (x) => W / 2 + (x - this.cx) / k, toY = (z) => H / 2 + (z - this.cz) / k;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.fillStyle = '#1d2419'; g.fillRect(0, 0, W, H);
     g.imageSmoothingEnabled = true;
-    g.drawImage(this.mini.map, toX(-half), toY(-half), 2 * half / k, 2 * half / k);
+    g.drawImage(this.mini.land, toX(-half), toY(-half), 2 * half / k, 2 * half / k);
+    // Wasser, Häuser, Strassen als Vektoren: bei jedem Zoom scharf
+    g.setTransform(1 / k, 0, 0, 1 / k, W / 2 - this.cx / k, H / 2 - this.cz / k);
+    const view = { x: this.cx, z: this.cz }, rad = Math.max(W, H) * k;
+    drawVectors(g, this.mini.vec, k, dpr, view, rad);
+    g.setTransform(1, 0, 0, 1, 0, 0);
     g.strokeStyle = 'rgba(240,90,50,.9)'; g.lineWidth = 3 * dpr;
     g.strokeRect(toX(-half + 5), toY(-half + 5), (2 * half - 10) / k, (2 * half - 10) / k);
+    const zoneOn = this.zone && this.zone.active;
+    const shown = (x, z) => !zoneOn || this.zone.contains(x, z);
+    // Strassennamen, wenn man nah genug ist
+    if (k < 1.3) {
+      g.font = `${11 * dpr}px Arial`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      for (const n of this.mini.vec.names) {
+        if (!shown(n.x, n.z)) continue;
+        const sx = toX(n.x), sy = toY(n.z);
+        if (sx < -100 || sy < -50 || sx > W + 100 || sy > H + 50) continue;
+        if (g.measureText(n.n).width > n.len / k * 1.1) continue;
+        g.save(); g.translate(sx, sy); g.rotate(n.a);
+        g.lineWidth = 3 * dpr; g.strokeStyle = 'rgba(255,255,255,.85)'; g.strokeText(n.n, 0, 0);
+        g.fillStyle = '#333'; g.fillText(n.n, 0, 0);
+        g.restore();
+      }
+    }
     if (this.zone) this.zone.draw(g, toX, toY, 3 * dpr, true);
     // Ortsnamen
     g.textAlign = 'center'; g.textBaseline = 'middle';
     for (const pl of this.world.places) {
+      if (!shown(pl.x, pl.z)) continue;
       const big = pl.type === 'village' || pl.type === 'town';
       if (!big && this.zoom < 1.5 && pl.type === 'isolated_dwelling') continue;
-      g.font = `${big ? 'bold ' : ''}${(big ? 17 : 12) * dpr}px Arial`;
-      g.lineWidth = 3 * dpr; g.strokeStyle = 'rgba(0,0,0,.75)'; g.fillStyle = big ? '#fff6d8' : '#f0f0f0';
-      g.strokeText(pl.name, toX(pl.x), toY(pl.z)); g.fillText(pl.name, toX(pl.x), toY(pl.z));
+      g.font = `${big ? 'bold ' : ''}${(big ? 18 : 12) * dpr}px Arial`;
+      g.lineWidth = 4 * dpr; g.strokeStyle = 'rgba(0,0,0,.8)'; g.fillStyle = big ? '#fff6d8' : '#f0f0f0';
+      const y = toY(pl.z) - (big && k < 1.5 ? 60 * dpr : 0);
+      g.strokeText(pl.name.toUpperCase(), toX(pl.x), y); g.fillText(pl.name.toUpperCase(), toX(pl.x), y);
     }
+    // Orte mit Symbol
+    const lms = [];
+    for (const [id, lm] of Object.entries(this.world.landmarks || {})) {
+      if (!lm || !ICONS[id]) continue;
+      const x = lm.door ? lm.door.x : lm.x, z = lm.door ? lm.door.z : lm.z;
+      if (x === undefined) continue;
+      lms.push([id, x, z, lm.name || (id === 'fountain' ? 'Brunnen' : '')]);
+    }
+    const sc = dpr * Math.min(1.3, Math.max(0.8, 1.4 / Math.sqrt(k)));
+    const order = ['club', 'home', 'fountain', 'imbiss', 'shop'];
+    lms.sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
+    const used = [];
+    g.font = `bold ${12 * sc}px Arial`;
+    for (const [id, x, z, name] of lms.slice().reverse()) if (shown(x, z)) drawIcon(g, toX(x), toY(z), id, '', sc, false);
+    // Namen nur, wo sie sich nicht überdecken (wichtige zuerst)
+    for (const [id, x, z, name] of lms) {
+      if (!shown(x, z) || !name) continue;
+      const sx = toX(x), sy = toY(z);
+      g.font = `bold ${12 * sc}px Arial`;
+      const r = [sx - 11 * sc, sy - 11 * sc, sx + 16 * sc + g.measureText(name).width, sy + 11 * sc];
+      if (used.some((u) => r[0] < u[2] && r[2] > u[0] && r[1] < u[3] && r[3] > u[1])) continue;
+      used.push(r);
+      drawIcon(g, sx, sy, id, name, sc, true);
+    }
+    // Legende
+    g.textBaseline = 'middle';
+    let ly = H - 20 * dpr - lms.length * 26 * dpr;
+    g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(12 * dpr, ly - 18 * dpr, 150 * dpr, lms.length * 26 * dpr + 12 * dpr);
+    for (const [id, , , name] of lms) { drawIcon(g, 30 * dpr, ly, id, name, dpr * 0.9, true); ly += 26 * dpr; }
     // Autos
-    g.fillStyle = '#f2b632';
-    for (const c of cars) if (!c.hasDriver) g.fillRect(toX(c.x) - 3 * dpr, toY(c.z) - 3 * dpr, 6 * dpr, 6 * dpr);
+    for (const c of cars) if (!c.hasDriver && shown(c.x, c.z)) drawIcon(g, toX(c.x), toY(c.z), 'car', '', dpr * 0.6, false);
     // Ziel
     if (this.target) {
       g.fillStyle = '#f2c230'; g.strokeStyle = '#000'; g.lineWidth = 2 * dpr;

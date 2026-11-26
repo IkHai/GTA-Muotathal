@@ -141,6 +141,7 @@ function enterCar(car) {
   car.hasDriver = true;
   player.setVisible(false);
   input.setDriving(true);
+  if (car.name) toast(car.name);
 }
 
 function exitCar() {
@@ -235,6 +236,7 @@ function frame(now) {
     }
   }
   if (currentCar) { player.position.set(currentCar.x, currentCar.mesh.position.y, currentCar.z); }
+  zone.update(player.position.x, player.position.y, player.position.z, now / 1000);
 
   const target = currentCar ? currentCar.mesh.position : player.position;
   follow.update(dt, look, target, currentCar ? 'car' : 'foot', currentCar ? currentCar.heading : 0, currentCar ? currentCar.speed : 0);
