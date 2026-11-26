@@ -1,0 +1,43 @@
+# Lädt das Luftbild SWISSIMAGE (swisstopo) für den Spielausschnitt nach data/aerial.jpg.
+name: Luftbild aktualisieren
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['claude/**']
+    paths:
+      - 'tools/build-aerial.mjs'
+      - '.github/workflows/luftbild.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: luftbild-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Luftbild laden
+        run: node tools/build-aerial.mjs
+
+      - name: Ergebnis speichern
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "Keine Änderungen am Luftbild."
+          else
+            git commit -m "Luftbild aktualisiert (SWISSIMAGE swisstopo)"
+            git push
+          fi
