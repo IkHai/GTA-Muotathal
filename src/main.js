@@ -5,6 +5,7 @@ import { Player } from './player.js';
 import { Car } from './car.js';
 import { FollowCamera } from './camera.js';
 import { Minimap, BigMap } from './minimap.js';
+import { Grass } from './grass.js';
 import { Traffic } from './traffic.js';
 import { Story, loadSave, setSaveKey } from './story.js';
 import { buildMenu, saveKeyFor } from './profiles.js';
@@ -100,6 +101,7 @@ follow.yaw = 0;
 follow.focus.set(player.position.x, player.position.y + 1.5, player.position.z);
 const minimap = new Minimap(document.getElementById('minimap'), world);
 const bigMap = new BigMap(minimap, world);
+const grass = new Grass(scene, world);
 
 let currentCar = null;
 input.setDriving(false);
@@ -213,6 +215,7 @@ function frame(now) {
   traffic.update(dt, player, currentCar, cars);
   world.updateLamps(dt);
   interiors.update(dt);
+  grass.update(dt, currentCar ? currentCar.mesh.position : player.position, !!interiors.inside);
   if (currentCar) { player.position.set(currentCar.x, currentCar.mesh.position.y, currentCar.z); }
 
   const target = currentCar ? currentCar.mesh.position : player.position;

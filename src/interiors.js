@@ -3,6 +3,7 @@ import { Builder } from './builder.js';
 import { Colliders } from './collision.js';
 import { makeCharacter } from './player.js';
 import { neonFigureTex, posterTex, plainTex } from './handmade.js';
+import { tex } from './textures.js';
 
 // Begehbare Innenräume wie in den alten Open-World-Spielen: an der Tür „Betreten“ tippen,
 // kurz schwarz, dann steht man drinnen. Die Räume liegen tief unter der Karte und haben
@@ -23,7 +24,9 @@ function baked(B) {
     const k = ny / l > 0.6 ? 1 : ny / l < -0.6 ? 0.55 : 0.78 + 0.1 * (nz / l) + 0.04 * (nx / l);
     for (let t = 0; t < 9; t++) c[i + t] *= k;
   }
-  const m = B.build(new THREE.MeshBasicMaterial({ vertexColors: true }));
+  // feine Körnung statt glatter Plastikflächen
+  for (let i = 0; i < c.length; i++) c[i] *= 1.08;
+  const m = B.build(new THREE.MeshBasicMaterial({ vertexColors: true, map: tex.grain() }), 0.7);
   return m;
 }
 const glowMesh = (B) => B.build(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));

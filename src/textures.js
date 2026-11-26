@@ -120,6 +120,29 @@ export const tex = {
       g.beginPath(); g.moveTo(x, y); g.lineTo(x + (Math.random() - 0.5) * 6, y + 3 + Math.random() * 4); g.stroke();
     }
   }),
+  // feine Körnung für Innenräume
+  grain: () => cache.grain ??= canvas(128, (g, s) => {
+    noise(g, s, '#ebebeb', 45, 5000, 1, 2, 0.3);
+    for (let i = 0; i < 25; i++) {
+      const x = Math.random() * s, y = Math.random() * s, r = 8 + Math.random() * 20;
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, 'rgba(90,90,90,0.07)'); gr.addColorStop(1, 'rgba(90,90,90,0)');
+      g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  }),
+  // weiche grosse Flecken für Abwechslung auf den Wiesen (hell/dunkel, trocken/saftig)
+  macro: () => cache.macro ??= canvas(128, (g, s) => {
+    g.fillStyle = '#808080'; g.fillRect(0, 0, s, s);
+    for (let i = 0; i < 90; i++) {
+      const x = Math.random() * s, y = Math.random() * s, r = 6 + Math.random() * 26;
+      const v = Math.random() < 0.5 ? 255 : 0;
+      for (const [dx, dy] of [[0, 0], [s, 0], [-s, 0], [0, s], [0, -s], [s, s], [-s, -s], [s, -s], [-s, s]]) {
+        const gr = g.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, r);
+        gr.addColorStop(0, `rgba(${v},${v},${v},0.22)`); gr.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        g.fillStyle = gr; g.fillRect(x + dx - r, y + dy - r, r * 2, r * 2);
+      }
+    }
+  }),
   water: () => cache.water ??= canvas(128, (g, s) => {
     noise(g, s, '#b8c4c8', 60, 2500, 1, 4, 0.3);
     for (let i = 0; i < 260; i++) {
@@ -130,11 +153,31 @@ export const tex = {
   }),
 };
 
+// Gelände: grosse helle/dunkle und trockene/saftige Flecken, damit nicht alles gleich grün ist
+function macroVariation(mat) {
+  const macro = tex.macro();
+  macro.colorSpace = THREE.NoColorSpace;
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uMacro = { value: macro };
+    sh.fragmentShader = 'uniform sampler2D uMacro;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+      float mA = texture2D(uMacro, vMapUv * 0.06).r;
+      float mB = texture2D(uMacro, vMapUv * 0.013 + 0.37).r;
+      float mC = texture2D(uMacro, vMapUv * 0.21 + 0.71).r;
+      diffuseColor.rgb *= 1.0 + (mA - 0.5) * 0.9 + (mC - 0.5) * 0.5;
+      float green = diffuseColor.g - max(diffuseColor.r, diffuseColor.b);
+      float dry = smoothstep(0.5, 0.7, mB) * smoothstep(0.0, 0.05, green);
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.18, 1.06, 0.72), dry * 0.7);
+      float lush = smoothstep(0.5, 0.3, mB) * smoothstep(0.0, 0.05, green);
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.85, 1.05, 0.8), lush * 0.6);`);
+  };
+  return mat;
+}
+
 // Einheitliche Materialien
 export function materials() {
   const lam = (map, extra = {}) => new THREE.MeshLambertMaterial({ vertexColors: true, map, ...extra });
   return {
-    terrain: lam(tex.grass()),
+    terrain: macroVariation(lam(tex.grass())),
     rock: lam(tex.rock()),
     road: lam(tex.asphalt(), { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }),
     plaster: lam(tex.plaster()),
