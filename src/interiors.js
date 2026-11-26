@@ -12,28 +12,103 @@ import { tex } from './textures.js';
 
 const DEPTH = 300;   // so weit unter dem Boden liegen die Räume
 
-// Einfarbige Flächen mit eingebackener Helligkeit (oben hell, Seiten mittel, unten dunkel):
-// drinnen soll keine Sonne scheinen, darum ungelichtet.
-function baked(B) {
+// Licht in den Räumen: bis zu MAXL farbige Lampen (die nächsten beim Spieler) beleuchten
+// Boden, Wände und Möbel pro Bildpunkt. Dazu eine schwache Grundhelligkeit.
+const MAXL = 12;
+export const ROOM_LIGHT = {
+  uLP: { value: Array.from({ length: MAXL }, () => new THREE.Vector3(0, -1e5, 0)) },
+  uLC: { value: Array.from({ length: MAXL }, () => new THREE.Vector3()) },
+  uLR: { value: new Array(MAXL).fill(1) },
+  uAmb: { value: 0.6 },
+};
+function litMaterial(map) {
+  const m = new THREE.MeshBasicMaterial({ vertexColors: true, map });
+  m.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, ROOM_LIGHT);
+    sh.vertexShader = 'varying vec3 vWP;\nvarying vec3 vWN;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;
+      vWN = normalize(mat3(modelMatrix) * normal);`);
+    sh.fragmentShader = `#define MAXL ${MAXL}\nuniform vec3 uLP[MAXL];\nuniform vec3 uLC[MAXL];\nuniform float uLR[MAXL];\nuniform float uAmb;\nvarying vec3 vWP;\nvarying vec3 vWN;\n` +
+      sh.fragmentShader.replace('#include <aomap_fragment>', `
+      vec3 Lsum = vec3(uAmb);
+      vec3 nn = normalize(vWN);
+      for (int i = 0; i < MAXL; i++) {
+        vec3 d = uLP[i] - vWP;
+        float dist = length(d);
+        float a = clamp(1.0 - dist / uLR[i], 0.0, 1.0);
+        a *= a;
+        float nd = max(dot(nn, d / max(dist, 0.001)), 0.0) * 0.8 + 0.2;
+        Lsum += uLC[i] * (a * nd);
+      }
+      reflectedLight.indirectDiffuse = Lsum;`);
+  };
+  return m;
+}
+
+// Flächen mit eingebackener Helligkeit (oben hell, Seiten mittel, unten dunkel), dazu das Raumlicht
+function baked(B, map) {
   const p = B.pos, c = B.col;
   for (let i = 0; i < p.length; i += 9) {
     const ux = p[i + 3] - p[i], uy = p[i + 4] - p[i + 1], uz = p[i + 5] - p[i + 2];
     const vx = p[i + 6] - p[i], vy = p[i + 7] - p[i + 1], vz = p[i + 8] - p[i + 2];
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     const l = Math.hypot(nx, ny, nz) || 1;
-    const k = ny / l > 0.6 ? 1 : ny / l < -0.6 ? 0.55 : 0.78 + 0.1 * (nz / l) + 0.04 * (nx / l);
-    for (let t = 0; t < 9; t++) c[i + t] *= k;
+    const k = ny / l > 0.6 ? 1 : ny / l < -0.6 ? 0.6 : 0.8 + 0.08 * (nz / l) + 0.04 * (nx / l);
+    for (let t = 0; t < 9; t++) c[i + t] *= k * 1.08;
   }
-  // feine Körnung statt glatter Plastikflächen
-  for (let i = 0; i < c.length; i++) c[i] *= 1.08;
-  const m = B.build(new THREE.MeshBasicMaterial({ vertexColors: true, map: tex.grain() }), 0.7);
-  return m;
+  return B.build(litMaterial(map), 0.7);
 }
+
+// Kiste mit abgerundeten Kanten (r = Radius) in echter Grösse
+const rboxCache = new Map();
+function roundBox(sx, sy, sz, r, seg = 3) {
+  const key = [sx, sy, sz, r, seg].map((v) => v.toFixed(3)).join(',');
+  let g = rboxCache.get(key);
+  if (g) return g;
+  r = Math.min(r, sx / 2 - 0.001, sy / 2 - 0.001, sz / 2 - 0.001);
+  g = new THREE.BoxGeometry(1, 1, 1, seg * 2, seg * 2, seg * 2);
+  const p = g.attributes.position, v = new THREE.Vector3(), inner = new THREE.Vector3(sx / 2 - r, sy / 2 - r, sz / 2 - r);
+  for (let i = 0; i < p.count; i++) {
+    v.set(p.getX(i) * sx, p.getY(i) * sy, p.getZ(i) * sz);
+    const cx = Math.max(-inner.x, Math.min(inner.x, v.x)), cy = Math.max(-inner.y, Math.min(inner.y, v.y)), cz = Math.max(-inner.z, Math.min(inner.z, v.z));
+    const d = new THREE.Vector3(v.x - cx, v.y - cy, v.z - cz);
+    if (d.lengthSq() > 1e-9) d.setLength(r);
+    p.setXYZ(i, cx + d.x, cy + d.y, cz + d.z);
+  }
+  g = g.toNonIndexed();
+  rboxCache.set(key, g);
+  return g;
+}
+
 const glowMesh = (B) => B.build(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
 
 // Ein Stockwerk-Baukasten: alles in lokalen Koordinaten (Gruppe bei O), Kollision in Welt
 class Kit {
-  constructor(O, cols) { this.O = O; this.cols = cols; this.B = new Builder(); this.G = new Builder(); this.extra = []; this.plan = []; }
+  constructor(O, cols) { this.O = O; this.cols = cols; this.bs = {}; this.cur = 'grain'; this.G = new Builder(); this.extra = []; this.plan = []; this.lights = []; }
+  // Werkstoff wählen: alles danach bekommt diese Textur (grain, wood, tiles, velvet, quilt, damask, mirror)
+  get B() { return this.bs[this.cur] ??= new Builder(); }
+  mat(name, fn) { const old = this.cur; this.cur = name; fn(); this.cur = old; }
+  // Lampe: wirft farbiges Licht (r = Reichweite) und hat optional einen Schein
+  light(x, y, z, color, r, strength = 1, halo = 0) {
+    const c = new THREE.Color(color);
+    this.lights.push({ p: new THREE.Vector3(this.O.x + x, this.O.y + y, this.O.z + z), c: new THREE.Vector3(c.r, c.g, c.b).multiplyScalar(strength), r });
+    if (halo) this.halo(x, y, z, color, halo);
+  }
+  halo(x, y, z, color, size) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex.halo(), color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55, toneMapped: false }));
+    s.position.set(x, y, z); s.scale.set(size, size, 1);
+    this.extra.push(s);
+  }
+  // runde Kiste, optional fest
+  round(x, y, z, sx, sy, sz, color, r = 0.08, ry = 0, solid = false) {
+    this.B.shape(roundBox(sx, sy, sz, r), x, y, z, 1, 1, 1, color, ry);
+    if (solid) {
+      const O = this.O, rot = Math.abs(Math.sin(ry)) > 0.7;
+      const wx = rot ? sz : sx, wz = rot ? sx : sz;
+      this.cols.addBox(O.x + x - wx / 2, O.x + x + wx / 2, O.z + z - wz / 2, O.z + z + wz / 2, O.y + y - sy / 2, O.y + y + sy / 2);
+      this.mark(x - wx / 2, z - wz / 2, x + wx / 2, z + wz / 2, y - sy / 2, y + sy / 2);
+    }
+  }
   // für die Karte: Rechteck in Weltkoordinaten mit Höhe
   mark(x0, z0, x1, z1, y0, y1, kind = 0) { const O = this.O; this.plan.push([O.x + x0, O.z + z0, O.x + x1, O.z + z1, O.y + y0, O.y + y1, kind]); }
   // runde Hindernisse nur in einem Stockwerk
@@ -123,16 +198,20 @@ class Kit {
     return m;
   }
   done(group) {
-    group.add(baked(this.B));
+    for (const [name, B] of Object.entries(this.bs)) if (B.pos.length) group.add(baked(B, tex[name]()));
     if (this.G.pos.length) group.add(glowMesh(this.G));
     for (const m of this.extra) group.add(m);
   }
 }
 
 function tableWithCandle(k, x, z, y = 0, r = 0.42) {
-  k.B.shape(new THREE.CylinderGeometry(r, r, 0.05, 14), x, y + 0.72, z, 1, 1, 1, 0x3a2016);
-  k.B.shape(new THREE.CylinderGeometry(0.05, 0.08, 0.7, 6), x, y + 0.35, z, 1, 1, 1, 0x1a1a1a);
-  k.G.box(x, y + 0.82, z, 0.07, 0.14, 0.07, 0xffc870);
+  k.mat('wood', () => k.B.shape(new THREE.CylinderGeometry(r, r, 0.05, 24), x, y + 0.72, z, 1, 1, 1, 0x4a2618));
+  k.B.shape(new THREE.TorusGeometry(r, 0.025, 6, 24), x, y + 0.72, z, 1, 1, 1, 0xa88a4a, 0, Math.PI / 2);
+  k.B.shape(new THREE.CylinderGeometry(0.04, 0.04, 0.7, 8), x, y + 0.35, z, 1, 1, 1, 0x8a8a90);
+  k.B.shape(new THREE.CylinderGeometry(0.22, 0.25, 0.03, 16), x, y + 0.015, z, 1, 1, 1, 0x2a2a2a);
+  k.G.shape(new THREE.CylinderGeometry(0.05, 0.055, 0.1, 10), x, y + 0.8, z, 1, 1, 1, 0xc84a20);
+  k.G.shape(new THREE.SphereGeometry(0.02, 6, 4), x, y + 0.87, z, 1, 1.6, 1, 0xffe0a0);
+  k.halo(x, y + 0.88, z, 0xffa040, 0.45);
   k.block(x, z, r * 1.6, r * 1.6, y, y + 0.75);
 }
 
@@ -150,109 +229,195 @@ function buildClubInside(club, terrain, cols) {
   const ZF = 9.5, ZM = 12.0;                                    // Läufe zwischen ZF und ZM, Podest dahinter
   const laneA = (CX0 + CM) / 2, laneB = (CM + CX1) / 2, lw = CM - CX0 - 0.14;
   // Hülle: Böden mit Loch über dem Treppenhaus, Decke oben
-  k.floor(-hx, hx, 0, D, 0, 0x2a141a);
-  for (const [y, col] of [[Y1, 0x3a1418], [Y2, 0x6a6458]]) {
+  k.mat('tiles', () => k.floor(-hx, hx, 0, D, 0, 0x4a3a44));
+  for (const [y, col, m] of [[Y1, 0x5a3424, 'wood'], [Y2, 0x7a7468, 'grain']]) k.mat(m, () => {
     k.solid((CX1 + hx) / 2, y - 0.15, D / 2, hx - CX1, 0.3, D, col);
     k.solid((CX0 + CX1) / 2, y - 0.15, ZF / 2, CX1 - CX0, 0.3, ZF, col);
-  }
+  });
   k.solid(0, TOP + 0.1, D / 2, hx * 2, 0.2, D, 0xb8b2a4);
-  for (const [y0, h, col] of [[0, Y1, 0x3a1830], [Y1, Y2 - Y1, 0x5a1a22], [Y2, TOP - Y2, 0xc8bea4]]) {
+  for (const [y0, h, col, m] of [[0, Y1, 0x4a2040, 'damask'], [Y1, Y2 - Y1, 0x7a2430, 'damask'], [Y2, TOP - Y2, 0xc8bea4, 'grain']]) k.mat(m, () => {
     k.wall('x', -0.08, -hx, hx, y0, h, col, [], 0.16);
     k.wall('x', D + 0.08, -hx, hx, y0, h, col, [], 0.16);
     k.wall('z', -hx - 0.08, 0, D, y0, h, col, [], 0.16);
     k.wall('z', hx + 0.08, 0, D, y0, h, col, [], 0.16);
-  }
-  // Holzverkleidung unten im EG und Neonleisten an der Decke
+  });
+  // Holztäfer unten im EG, Zierleiste, Neonleisten an der Decke
+  k.mat('wood', () => {
+    for (const [x, z, sx, sz] of [[0, 0.03, hx * 2, 0.05], [0, D - 0.03, hx * 2, 0.05], [-hx + 0.03, D / 2, 0.05, D], [hx - 0.03, D / 2, 0.05, D]]) {
+      k.B.box(x, 0.6, z, sx, 1.2, sz, 0x4a2414);
+      k.B.box(x, 1.22, z, sx + (sx > 1 ? 0 : 0.04), 0.06, sz + (sz > 1 ? 0 : 0.04), 0x8a6a3a);
+    }
+  });
   for (const [x, z, sx, sz] of [[0, 0.02, hx * 2, 0.03], [0, D - 0.02, hx * 2, 0.03], [-hx + 0.02, D / 2, 0.03, D], [hx - 0.02, D / 2, 0.03, D]]) {
-    k.B.box(x, 0.55, z, sx, 1.1, sz, 0x2a140e);
     k.G.box(x, H0 - 0.12, z, sx, 0.05, sz, z === 0.02 || z === D - 0.02 ? 0xff3a8a : 0x8a3aff);
   }
-  // Fenster (innen dunkel, mit Vorhängen)
+  k.light(0, H0 - 0.4, 0.6, 0xff3a8a, 5, 0.7);
+  k.light(-hx + 0.5, H0 - 0.4, 4.5, 0x8a3aff, 5, 0.7);
+  k.light(hx - 0.5, H0 - 0.4, 7.5, 0x8a3aff, 5, 0.7);
+  // Deckenspots
+  for (const [x, z] of [[-3, 2], [3, 2], [-3, 8], [3, 9.5], [0, 11]]) {
+    k.B.shape(new THREE.CylinderGeometry(0.12, 0.1, 0.12, 10), x, H0 - 0.06, z, 1, 1, 1, 0x1a1a1a);
+    k.G.shape(new THREE.CylinderGeometry(0.07, 0.07, 0.01, 10), x, H0 - 0.125, z, 1, 1, 1, 0xfff0d8);
+  }
+  // Fenster (innen dunkel, mit Samtvorhängen)
   const win = (x, y, z, ry, curtain) => {
     k.B.box(x, y, z, 1.1, 1.4, 0.04, 0x0c0a14, ry);
-    for (const s of [-1, 1]) {
-      const dx = ry ? 0 : s * 0.75, dz = ry ? s * 0.75 : 0;
-      k.B.box(x + dx, y - 0.1, z + dz, 0.45, 1.9, 0.06, curtain, ry);
-    }
+    k.mat('velvet', () => {
+      for (const s of [-1, 1]) {
+        const dx = ry ? 0 : s * 0.75, dz = ry ? s * 0.75 : 0;
+        k.round(x + dx, y - 0.1, z + dz, ry ? 0.08 : 0.5, 1.9, ry ? 0.5 : 0.08, curtain, 0.03, 0);
+      }
+      k.round(x, y + 0.85, z, ry ? 0.1 : 1.9, 0.25, ry ? 1.9 : 0.1, curtain, 0.04, 0);
+    });
   };
 
   // ===== EG: Hauptraum mit Bühne und Bar =====
-  // Eingangstür (rot, Neonrahmen)
-  k.B.box(0.6, 1.2, 0.04, 1.9, 2.4, 0.06, 0x6a0c18);
-  k.G.box(0.6, 2.45, 0.08, 2.1, 0.05, 0.05, 0xff4f9a);
-  for (const s of [-1, 1]) k.G.box(0.6 + s * 1.05, 1.2, 0.08, 0.05, 2.4, 0.05, 0xff4f9a);
+  // Eingangstür (rot gepolstert, Neonrahmen)
+  k.mat('quilt', () => k.round(0.6, 1.2, 0.06, 1.9, 2.4, 0.08, 0x6a0c18, 0.03));
+  k.G.box(0.6, 2.45, 0.1, 2.1, 0.05, 0.05, 0xff4f9a);
+  for (const s of [-1, 1]) k.G.box(0.6 + s * 1.05, 1.2, 0.1, 0.05, 2.4, 0.05, 0xff4f9a);
   k.G.box(0.6, 2.75, 0.1, 0.9, 0.22, 0.04, 0x40ff80);                                   // Notausgang-Schild
-  // Bar hinten
-  k.solid(-0.6, 0.55, 12.0, 6.0, 1.1, 0.7, 0x3a1c12);
-  k.B.box(-0.6, 1.13, 11.95, 6.3, 0.06, 0.9, 0x6b3f28);
-  k.G.box(-0.6, 0.08, 11.62, 6.0, 0.04, 0.04, 0xff3a8a);
-  k.solid(2.6, 0.55, 12.75, 0.7, 1.1, 0.8, 0x3a1c12);                                 // Ecke der Theke
-  for (const y of [1.5, 2.0, 2.5]) {
-    k.B.box(-0.6, y, D - 0.2, 6.4, 0.05, 0.3, 0x2a1410);
-    k.G.box(-0.6, y + 0.03, D - 0.06, 6.4, 0.03, 0.03, y === 2.0 ? 0x3ac8ff : 0xff5aa8);
+  k.light(0.6, 2.2, 0.5, 0xff4f9a, 3, 0.6);
+  // Bar hinten: gepolsterte Front, Holzplatte, Leuchtband unten
+  k.mat('quilt', () => {
+    k.round(-0.6, 0.55, 12.0, 6.0, 1.1, 0.7, 0x4a1420, 0.08, 0, true);
+    k.round(2.6, 0.55, 12.75, 0.7, 1.1, 0.8, 0x4a1420, 0.08, 0, true);                 // Ecke der Theke
+  });
+  k.mat('wood', () => {
+    k.round(-0.6, 1.14, 11.95, 6.3, 0.08, 0.95, 0x6a3a1e, 0.035);
+    k.round(2.6, 1.14, 12.75, 0.95, 0.08, 1.0, 0x6a3a1e, 0.035);
+    k.B.box(-0.6, 0.9, D - 0.35, 6.6, 1.8, 0.4, 0x3a1e10);                              // Rückbuffet
+  });
+  k.G.box(-0.6, 0.06, 11.6, 6.0, 0.04, 0.04, 0xff3a8a);
+  k.light(-2.4, 0.25, 11.2, 0xff3a8a, 2.2, 0.9); k.light(1.2, 0.25, 11.2, 0xff3a8a, 2.2, 0.9);
+  // Spiegel hinter der Bar mit beleuchteten Glasregalen
+  k.mat('mirror', () => k.B.box(-0.6, 2.35, D - 0.1, 6.2, 1.5, 0.03, 0x8a8aa0));
+  k.mat('wood', () => { for (const sx of [-1, 1]) k.B.box(-0.6 + sx * 3.15, 2.35, D - 0.12, 0.12, 1.7, 0.08, 0x2a1408); k.B.box(-0.6, 3.15, D - 0.12, 6.4, 0.12, 0.08, 0x2a1408); });
+  for (const y of [1.85, 2.4, 2.95]) {
+    k.G.box(-0.6, y, D - 0.25, 6.0, 0.025, 0.28, 0x6a8aa8);
+    k.G.box(-0.6, y - 0.03, D - 0.12, 6.0, 0.02, 0.02, y === 2.4 ? 0x3ac8ff : 0xff5aa8);
   }
-  const bottles = [0x2f6b3a, 0x8a5a1a, 0xc8c8c0, 0x6a1a1a, 0x2a4a7a, 0xd0a030, 0x6a2a6a];
+  k.light(-0.6, 2.4, D - 0.5, 0x3ac8ff, 4, 0.6);
+  const bottles = [0x2f8b4a, 0xb07a2a, 0xe8e8e0, 0x9a2a2a, 0x3a6aaa, 0xe0b040, 0x8a3a9a];
+  const body = new THREE.CylinderGeometry(1, 1, 1, 10), neck = new THREE.CylinderGeometry(0.4, 1, 1, 10);
   for (let i = 0; i < 39; i++) {
-    const x = -3.4 + (i % 13) * 0.46, y = [1.68, 2.18, 2.68][Math.floor(i / 13)];
-    k.B.box(x, y, D - 0.2, 0.09, 0.3 + (i % 3) * 0.04, 0.09, bottles[(i * 5) % bottles.length]);
+    const x = -3.3 + (i % 13) * 0.45 + (i % 2) * 0.05, y = [1.87, 2.42, 2.97][Math.floor(i / 13)];
+    const h = 0.2 + (i % 3) * 0.04, r = 0.04 + (i % 4) * 0.006, c = bottles[(i * 5) % bottles.length];
+    k.G.shape(body, x, y + h / 2, D - 0.25, r, h, r, new THREE.Color(c).multiplyScalar(0.75).getHex());
+    k.G.shape(neck, x, y + h + 0.05, D - 0.25, r * 0.55, 0.1, r * 0.55, new THREE.Color(c).multiplyScalar(0.55).getHex());
   }
-  k.B.box(-0.6, 2.1, D - 0.35, 2.4, 1.0, 0.02, 0x5a5a6a);                              // Spiegel
+  // Zapfhähne, Gläser, Kasse auf der Theke
+  for (let i = 0; i < 3; i++) {
+    const x = 0.6 + i * 0.25;
+    k.B.shape(new THREE.CylinderGeometry(0.03, 0.03, 0.35, 8), x, 1.36, 12.1, 1, 1, 1, 0xc8c8d0);
+    k.G.shape(new THREE.SphereGeometry(0.045, 8, 6), x, 1.56, 12.1, 1, 1, 1, [0xffc040, 0xff5a5a, 0x5ac8ff][i]);
+  }
+  for (const [x, z] of [[-3.0, 11.8], [-2.2, 11.75], [-1.6, 11.85], [0.0, 11.8], [1.8, 11.75]]) {
+    k.G.shape(new THREE.CylinderGeometry(0.035, 0.03, 0.12, 10), x, 1.24, z, 1, 1, 1, 0x6a7a8a);
+    k.G.shape(new THREE.CylinderGeometry(0.03, 0.03, 0.05, 10), x, 1.215, z, 1, 1, 1, x < -2 ? 0xc87a20 : 0xa0a040);
+  }
+  k.round(-3.2, 1.3, 12.2, 0.4, 0.25, 0.35, 0x2a2a2e, 0.04);
+  k.G.box(-3.2, 1.37, 12.02, 0.25, 0.08, 0.01, 0x40ff80);
+  // Hängelampen über der Theke
+  for (const x of [-2.8, -0.6, 1.6]) {
+    k.B.box(x, 3.35, 12.0, 0.015, 1.3, 0.015, 0x111111);
+    k.B.shape(new THREE.ConeGeometry(0.28, 0.25, 16, 1, true), x, 2.65, 12.0, 1, 1, 1, 0x1a1a1a);
+    k.G.shape(new THREE.SphereGeometry(0.08, 10, 8), x, 2.55, 12.0, 1, 1, 1, 0xffd8a0);
+    k.light(x, 2.4, 12.0, 0xffb070, 3.2, 1.0, 0.9);
+  }
+  // Barhocker: Chromstange, gepolsterter Sitz
   for (let i = 0; i < 6; i++) {
     const x = -3.2 + i * 1.1;
-    k.B.shape(new THREE.CylinderGeometry(0.04, 0.04, 0.75, 6), x, 0.38, 11.25, 1, 1, 1, 0x888888);
-    k.B.shape(new THREE.CylinderGeometry(0.22, 0.2, 0.1, 10), x, 0.78, 11.25, 1, 1, 1, 0x8a1a2a);
+    k.B.shape(new THREE.CylinderGeometry(0.2, 0.22, 0.03, 16), x, 0.015, 11.25, 1, 1, 1, 0xa8a8b0);
+    k.B.shape(new THREE.CylinderGeometry(0.035, 0.035, 0.72, 8), x, 0.38, 11.25, 1, 1, 1, 0xc8c8d0);
+    k.B.shape(new THREE.TorusGeometry(0.16, 0.012, 6, 16), x, 0.3, 11.25, 1, 1, 1, 0xc8c8d0, 0, Math.PI / 2);
+    k.mat('quilt', () => k.B.shape(new THREE.CylinderGeometry(0.21, 0.19, 0.1, 18), x, 0.78, 11.25, 1, 1, 1, 0x9a1a2a));
+    k.B.shape(new THREE.TorusGeometry(0.2, 0.025, 6, 18), x, 0.82, 11.25, 1, 1, 1, 0x6a0c18, 0, Math.PI / 2);
   }
-  // Bühne mit Stange, Neonring und Scheinwerfern (ohne Tänzerin)
+  // Bühne mit Stange, Leuchtring und Scheinwerfern (ohne Tänzerin)
   const sx = 0.3, sz = 6.4, sr = 2.0;
-  k.B.shape(new THREE.CylinderGeometry(sr, sr + 0.05, 0.45, 32), sx, 0.225, sz, 1, 1, 1, 0x1a1418);
-  k.B.shape(new THREE.CylinderGeometry(sr - 0.1, sr - 0.1, 0.02, 32), sx, 0.46, sz, 1, 1, 1, 0x3a2a34);
-  k.G.shape(new THREE.TorusGeometry(sr + 0.02, 0.035, 6, 40), sx, 0.42, sz, 1, 1, 1, 0xff3a9a, 0, Math.PI / 2);
-  k.B.shape(new THREE.CylinderGeometry(0.035, 0.035, H0 - 0.45, 8), sx, 0.45 + (H0 - 0.45) / 2, sz, 1, 1, 1, 0xe0e0e8);
+  k.mat('tiles', () => k.B.shape(new THREE.CylinderGeometry(sr, sr + 0.05, 0.45, 40), sx, 0.225, sz, 1, 1, 1, 0x2a2228));
+  k.B.shape(new THREE.CylinderGeometry(sr - 0.1, sr - 0.1, 0.02, 40), sx, 0.46, sz, 1, 1, 1, 0x4a3a44);
+  k.G.shape(new THREE.TorusGeometry(sr + 0.02, 0.035, 6, 48), sx, 0.42, sz, 1, 1, 1, 0xff3a9a, 0, Math.PI / 2);
+  k.G.shape(new THREE.TorusGeometry(sr - 0.12, 0.02, 6, 48), sx, 0.47, sz, 1, 1, 1, 0xb04aff, 0, Math.PI / 2);
+  for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; k.G.shape(new THREE.SphereGeometry(0.035, 6, 4), sx + Math.cos(a) * (sr + 0.06), 0.2, sz + Math.sin(a) * (sr + 0.06), 1, 1, 1, 0xfff0f8); }
+  k.B.shape(new THREE.CylinderGeometry(0.035, 0.035, H0 - 0.45, 10), sx, 0.45 + (H0 - 0.45) / 2, sz, 1, 1, 1, 0xf0f0f8);
   k.circle(sx, sz, sr, 0, 0.45);
+  k.light(sx, 2.6, sz, 0xff4ab0, 6.5, 1.4);
+  k.light(sx, 0.7, sz, 0xb04aff, 3.0, 0.8);
+  k.halo(sx, 0.5, sz, 0xff3a9a, 1.6);
   const cones = [];
   for (const [cx, cz, col] of [[-1.6, 4.8, 0xff3aa8], [2.2, 4.8, 0xb04aff], [0.3, 8.6, 0xff6ac0]]) {
-    k.B.box(cx, H0 - 0.15, cz, 0.3, 0.3, 0.3, 0x111111);
+    k.B.shape(new THREE.CylinderGeometry(0.16, 0.2, 0.35, 12), cx, H0 - 0.2, cz, 1, 1, 1, 0x111111);
+    k.G.shape(new THREE.CylinderGeometry(0.15, 0.15, 0.01, 12), cx, H0 - 0.38, cz, 1, 1, 1, col);
+    k.halo(cx, H0 - 0.42, cz, col, 0.9);
     const h = H0 - 0.3, dx = sx - cx, dz = sz - cz;
     const len = Math.hypot(dx, h, dz);
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.75, len, 16, 1, true),
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.75, len, 20, 1, true),
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
     cone.position.set((cx + sx) / 2, H0 - 0.3 - h / 2, (cz + sz) / 2);
     cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-dx, h, -dz).normalize());
     cones.push(cone); k.extra.push(cone);
   }
-  // Lichtfleck auf der Bühne
-  k.G.shape(new THREE.CylinderGeometry(1.2, 1.2, 0.01, 24), sx, 0.475, sz, 1, 1, 1, 0x6a2a52);
   // Diskokugel
-  const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(0.25, 1), new THREE.MeshBasicMaterial({ color: 0xd0d0e0 }));
+  const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(0.25, 2), new THREE.MeshBasicMaterial({ color: 0xd0d0e0 }));
   ball.position.set(2.2, H0 - 0.6, 3.2);
   k.extra.push(ball);
-  // Nischen mit Sofas links und rechts
+  k.B.box(2.2, H0 - 0.25, 3.2, 0.01, 0.5, 0.01, 0x222222);
+  // Lautsprecher oben in den Ecken
+  for (const [x, z, ry] of [[-hx + 0.35, 1.0, Math.PI / 2], [hx - 0.35, 12.6, -Math.PI / 2], [-4.5, 9.2, Math.PI / 2]]) {
+    k.round(x, H0 - 0.7, z, 0.5, 0.75, 0.4, 0x141414, 0.05, ry);
+    for (const [dy, r] of [[0.15, 0.15], [-0.2, 0.08]]) k.B.shape(new THREE.CylinderGeometry(r, r, 0.02, 14), x + Math.sin(ry) * 0.2, H0 - 0.7 + dy, z, 1, 1, 1, 0x2a2a2a, ry, Math.PI / 2);
+  }
+  // DJ-Pult vorne links
+  k.round(-4.2, 0.55, 0.65, 1.7, 1.1, 0.7, 0x1a1a1e, 0.06, 0, true);
+  k.G.box(-4.2, 0.12, 1.01, 1.6, 0.03, 0.02, 0x3ac8ff);
+  for (const x of [-4.7, -3.7]) k.B.shape(new THREE.CylinderGeometry(0.17, 0.17, 0.03, 20), x, 1.12, 0.65, 1, 1, 1, 0x2a2a2a);
+  k.G.box(-4.2, 1.12, 0.65, 0.25, 0.02, 0.2, 0xff5aa8);
+  k.light(-4.2, 1.4, 1.2, 0x3ac8ff, 2.2, 0.6);
+  // Nischen mit gesteppten Samtsofas links und rechts (side = Richtung zur Wand)
   const booth = (x, z, side) => {
-    const wx = x + side * 0.0;
-    k.solid(wx, 0.25, z, 0.8, 0.5, 2.6, 0x5a1020);                         // Sitz
-    k.B.box(wx - side * 0.35, 0.75, z, 0.25, 1.0, 2.6, 0x6a1428);          // Lehne
-    for (const s of [-1, 1]) k.B.box(wx, 0.45, z + s * 1.25, 0.8, 0.9, 0.2, 0x4a0c1a);
-    tableWithCandle(k, x + side * 1.15, z, 0, 0.45);
-    k.G.box(x - side * 0.38, 2.0, z, 0.04, 0.3, 0.2, 0xffb070);           // Wandlampe
+    k.mat('quilt', () => {
+      k.round(x - side * 0.05, 0.22, z, 0.75, 0.44, 2.4, 0x6a1028, 0.1, 0, true);         // Sitz
+      k.round(x + side * 0.3, 0.85, z, 0.24, 0.95, 2.4, 0x7a1430, 0.1);                   // Lehne
+      for (const s of [-1, 1]) k.round(x, 0.5, z + s * 1.25, 0.8, 0.62, 0.2, 0x5a0c22, 0.08);
+    });
+    k.mat('velvet', () => { for (const s of [-1, 1]) k.round(x - side * 0.05, 0.49, z + s * 0.58, 0.66, 0.1, 1.08, 0x8a1838, 0.05); });
+    tableWithCandle(k, x - side * 1.15, z, 0, 0.45);
+    k.B.box(x + side * 0.4, 2.0, z, 0.06, 0.05, 0.3, 0x8a6a3a);
+    k.G.shape(new THREE.SphereGeometry(0.1, 10, 8), x + side * 0.3, 2.05, z, 1, 1.3, 1, 0xffc080);
+    k.light(x + side * 0.1, 1.9, z, 0xffa860, 3.0, 0.9, 0.8);
   };
   booth(-hx + 0.45, 3.0, -1); booth(-hx + 0.45, 6.3, -1);
   booth(hx - 0.45, 5.6, 1); booth(hx - 0.45, 9.4, 1);
   tableWithCandle(k, -2.8, 3.4); tableWithCandle(k, -3.0, 9.0); tableWithCandle(k, 3.5, 2.6 + 1.6);
   for (const [x, z] of [[-2.8, 2.6], [-2.8, 4.2], [-3.0, 8.2], [-3.0, 9.8]]) {
-    k.B.box(x, 0.25, z, 0.5, 0.5, 0.5, 0x5a1020); k.B.box(x, 0.65, z + (z % 1 > 0.5 ? 0.2 : -0.2), 0.5, 0.4, 0.1, 0x4a0c1a);
+    const back = z % 1 > 0.5 ? 0.2 : -0.2;
+    k.mat('quilt', () => { k.round(x, 0.28, z, 0.48, 0.14, 0.48, 0x7a1430, 0.05); k.round(x, 0.65, z + back, 0.48, 0.5, 0.1, 0x6a1028, 0.04); });
+    for (const [ox, oz] of [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]]) k.B.box(x + ox, 0.1, z + oz, 0.03, 0.2, 0.03, 0x1a1a1a);
   }
   // WC vorne rechts
-  k.wall('z', 3.9, 0, 3.6, 0, H0, 0x3a1830, [], 0.14);
-  k.wall('x', 3.6, 3.9, hx, 0, H0, 0x3a1830, [{ c: 5.3, w: 0.95 }], 0.14);
-  k.B.box(5.3, 0.01, 1.8, 2.8, 0.02, 3.5, 0x8a8a90);                                    // Fliesen
-  k.solid(6.2, 0.22, 0.7, 0.45, 0.44, 0.6, 0xe8e8e8); k.B.box(6.45, 0.7, 0.7, 0.15, 0.6, 0.5, 0xe8e8e8);   // Toilette
-  k.solid(4.4, 0.85, 0.3, 0.6, 0.15, 0.45, 0xe0e0e0); k.B.box(4.4, 1.6, 0.04, 0.6, 0.8, 0.02, 0x7a8a9a);  // Lavabo, Spiegel
+  k.mat('damask', () => {
+    k.wall('z', 3.9, 0, 3.6, 0, H0, 0x4a2040, [], 0.14);
+    k.wall('x', 3.6, 3.9, hx, 0, H0, 0x4a2040, [{ c: 5.3, w: 0.95 }], 0.14);
+  });
+  k.mat('tiles', () => k.B.box(5.3, 0.01, 1.8, 2.8, 0.02, 3.5, 0xb8b8c0));
+  k.round(6.2, 0.22, 0.7, 0.45, 0.44, 0.6, 0xe8e8e8, 0.12, 0, true); k.round(6.45, 0.7, 0.7, 0.15, 0.6, 0.5, 0xe8e8e8, 0.05);   // Toilette
+  k.round(4.4, 0.85, 0.3, 0.6, 0.15, 0.45, 0xe0e0e0, 0.05, 0, true); k.mat('mirror', () => k.B.box(4.4, 1.6, 0.04, 0.6, 0.8, 0.02, 0x9aaaba));  // Lavabo, Spiegel
+  k.G.box(4.4, 2.05, 0.08, 0.5, 0.04, 0.04, 0xfff0e0);
+  k.light(5.3, 2.6, 1.8, 0xfff0e0, 3, 0.7);
   k.picture(plainTex('WC', '#1a1a1a', '#ffffff'), 5.3, 2.5, 3.6 + 0.09, 0.5, 0.2, 0);
   // Personal-Tür hinten rechts
   k.door(5.2, 0, D, 0, -1, 0x3a3a3a);
+  // Neonfigur und Plakate
+  k.picture(neonFigureTex(), hx - 0.12, 2.2, 7.6, 2.4, 1.2, -Math.PI / 2, true);
+  k.light(hx - 0.6, 2.2, 7.6, 0xff5ac8, 3.5, 0.8);
+  k.picture(posterTex(), -hx + 0.1, 1.9, 4.65, 0.7, 1.0, Math.PI / 2, true);
+  k.picture(posterTex(), hx - 0.1, 1.9, 11.2, 0.7, 1.0, -Math.PI / 2, true);
 
   // ===== Treppenhaus =====
   const stairWall = 0x4a3a34, step = 0x5a4a3e;
+  k.cur = 'wood';
   k.wall('z', CX1, ZF, D, 0, Y1, stairWall, [], 0.14);                 // EG: Kern zum Raum hin
   k.wall('z', CX1, 7.6, D, Y1, TOP - Y1, stairWall, [], 0.14);          // oben: Kern zu den Zimmern
   k.wall('z', CM, ZF, ZM, 0, TOP, stairWall, [], 0.14);                 // Mittelwand zwischen den Läufen
@@ -266,19 +431,17 @@ function buildClubInside(club, terrain, cols) {
   k.flight(laneA, lw, ZF, ZM, Y1, Ym, 10, step);
   k.solid((CX0 + CX1) / 2, Ym - 0.15, (ZM + D) / 2, CX1 - CX0, 0.3, D - ZM, step);
   k.flight(laneB, lw, ZM, ZF, Ym, Y2, 10, step);
+  k.cur = 'grain';
   // Geländer oben am Treppenloch
   k.solid(laneA, Y2 + 0.5, ZF + 0.05, lw, 1.0, 0.08, 0x2a2a2a);
   // Holztür zur Aussentreppe auf dem Zwischenpodest, Lampen, Schilder
   k.door(-hx, Y1 / 2, (ZM + D) / 2, 1, 0, 0x6a4424);
-  for (const y of [Y1 / 2, Ym]) k.G.box(CX1 - 0.1, y + 2.0, (ZM + D) / 2, 0.06, 0.25, 0.4, 0xffe0b0);
+  for (const y of [Y1 / 2, Ym]) { k.G.box(CX1 - 0.1, y + 2.0, (ZM + D) / 2, 0.06, 0.25, 0.4, 0xffe0b0); k.light(CX1 - 0.6, y + 1.9, (ZM + D) / 2, 0xffd8a0, 4, 0.9, 0.7); }
   k.G.box(CM, Y1 - 0.5, ZF - 0.6, 0.6, 0.08, 0.3, 0xfff0d0);
+  k.light(CM, Y1 - 0.7, ZF - 0.6, 0xfff0d0, 3.5, 0.6);
   k.picture(plainTex('1. OG · VIP', '#1a0a10', '#ffd0e0'), CX1 - 0.09, Y1 + 2.4, 8.6, 0.8, 0.2, -Math.PI / 2);
   k.picture(plainTex('2. OG · Büro', '#2a2a2a', '#ffffff'), CX1 - 0.09, Y2 + 2.0, 8.6, 0.8, 0.2, -Math.PI / 2);
   k.picture(plainTex('PRIVAT ↑', '#2a0a10', '#ff9ac4'), (CX0 + CX1) / 2, 2.9, ZF - 0.02, 0.8, 0.2, Math.PI);
-  // Neonfigur und Plakate
-  k.picture(neonFigureTex(), hx - 0.12, 2.2, 7.6, 2.4, 1.2, -Math.PI / 2, true);
-  k.picture(posterTex(), -hx + 0.1, 1.8, 5.6, 0.7, 1.0, Math.PI / 2, true);
-  k.picture(posterTex(), hx - 0.1, 1.8, 11.2, 0.7, 1.0, -Math.PI / 2, true);
 
   // ===== 1. OG: VIP-Flur und vier VIP-Zimmer =====
   const cz0 = 5.9, cz1 = 7.6;
@@ -289,6 +452,7 @@ function buildClubInside(club, terrain, cols) {
   k.B.box(0, Y1 + 0.01, (cz0 + cz1) / 2, hx * 2 - 0.4, 0.02, 0.9, 0x8a1424);           // roter Läufer
   for (let x = -5.5; x <= 5.5; x += 2.75) {
     k.G.shape(new THREE.CylinderGeometry(0.22, 0.22, 0.04, 12), x, Y1 + H1 - 0.05, (cz0 + cz1) / 2, 1, 1, 1, 0xff6a9a);
+    k.light(x, Y1 + H1 - 0.5, (cz0 + cz1) / 2, 0xff6a9a, 3.2, 0.8, 0.8);
     for (const z of [cz0 + 0.1, cz1 - 0.1]) k.G.box(x + 1.3, Y1 + 1.8, z, 0.14, 0.22, 0.06, 0xffc080);
   }
   k.picture(posterTex(), -1.2, Y1 + 1.5, cz1 - 0.09, 0.6, 0.9, Math.PI, true);
@@ -299,15 +463,17 @@ function buildClubInside(club, terrain, cols) {
       k.B.shape(new THREE.CylinderGeometry(1.15, 1.15, 0.08, 24), x, Y1 + 0.49, z, 1, 1, 1, 0xa01a30);
       k.circle(x, z, 1.2, Y1, Y1 + 0.5);
     } else {
-      k.solid(x, Y1 + 0.25, z, 2.0, 0.5, 2.2, 0x7a1424);
-      k.B.box(x, Y1 + 0.52, z + 0.2, 1.9, 0.06, 1.7, 0xa01a30);
+      k.mat('quilt', () => k.round(x, Y1 + 0.25, z, 2.0, 0.5, 2.2, 0x7a1424, 0.1, 0, true));
+      k.mat('velvet', () => k.round(x, Y1 + 0.53, z + 0.2, 1.9, 0.1, 1.7, 0xa01a30, 0.05));
     }
-    for (const s of [-1, 1]) k.B.box(x + s * 0.45, Y1 + 0.6, z - (round ? 0.7 : 0.85), 0.6, 0.15, 0.35, 0xe8d8d8);
-    k.B.box(x, Y1 + 1.0, z - (round ? 1.3 : 1.15), 2.2, 1.3, 0.15, 0x4a0c18);             // Kopfteil
+    for (const s of [-1, 1]) k.round(x + s * 0.45, Y1 + 0.62, z - (round ? 0.7 : 0.85), 0.6, 0.16, 0.35, 0xe8d8d8, 0.07);
+    k.mat('quilt', () => k.round(x, Y1 + 1.0, z - (round ? 1.3 : 1.15), 2.2, 1.3, 0.18, 0x4a0c18, 0.08));             // Kopfteil
     for (const s of [-1, 1]) {
-      k.solid(x + s * 1.5, Y1 + 0.3, z - 1.0, 0.45, 0.6, 0.45, 0x2a1410);
-      k.G.box(x + s * 1.5, Y1 + 0.75, z - 1.0, 0.2, 0.25, 0.2, 0xffa060);
+      k.mat('wood', () => k.round(x + s * 1.5, Y1 + 0.3, z - 1.0, 0.45, 0.6, 0.45, 0x3a1a10, 0.04, 0, true));
+      k.B.shape(new THREE.CylinderGeometry(0.02, 0.06, 0.2, 8), x + s * 1.5, Y1 + 0.7, z - 1.0, 1, 1, 1, 0xa88a4a);
+      k.G.shape(new THREE.CylinderGeometry(0.1, 0.14, 0.18, 14, 1, true), x + s * 1.5, Y1 + 0.88, z - 1.0, 1, 1, 1, 0xffa060);
     }
+    k.light(x, Y1 + 1.2, z - 0.6, 0xff8a50, 3.6, 0.9);
   };
   // vorne links: rundes Bett und Whirlpool
   vipBed(-4.0, 3.6, true);
@@ -333,6 +499,10 @@ function buildClubInside(club, terrain, cols) {
   k.wall('z', 0, 0, cz0, Y2, H2, 0xa89e86, [], 0.14);
   k.wall('z', 1.6, cz1, D, Y2, H2, 0xa89e86, [], 0.14);
   k.G.box(0, Y2 + H2 - 0.05, (cz0 + cz1) / 2, 2.4, 0.05, 0.2, 0xe8f0ff);              // Neonröhre
+  k.light(0, Y2 + H2 - 0.4, (cz0 + cz1) / 2, 0xe8f0ff, 4, 0.7);
+  k.light(-3.4, Y2 + 2.0, 2.8, 0xffe0b0, 4, 0.8);                                        // Office
+  k.light(3.6, Y2 + 2.0, 2.4, 0xfff0d0, 4, 0.7);                                         // Garderobe
+  k.light(3.6, Y2 + 2.0, 10.6, 0xe8f0ff, 4, 0.6);
   // Office (vorne links)
   k.solid(-3.4, Y2 + 0.4, 2.4, 2.2, 0.8, 1.0, 0x4a2a16);                               // Schreibtisch
   k.B.box(-3.4, Y2 + 0.82, 2.4, 2.3, 0.05, 1.1, 0x6a3a1e);
@@ -366,6 +536,7 @@ function buildClubInside(club, terrain, cols) {
   for (const [x, z] of [[-3.3, 10.5], [-2.7, 10.9], [-1.0, 10.4]]) k.solid(x, Y2 + 0.3, z, 0.6, 0.6, 0.6, 0x8a6a40);
   k.B.shape(new THREE.CylinderGeometry(0.25, 0.25, 0.6, 10), 0.9, Y2 + 0.3, 10.6, 1, 1, 1, 0x9a9aa0);
   k.G.box(-1.3, Y2 + H2 - 0.05, 10.6, 1.4, 0.05, 0.15, 0xe8f0ff);
+  k.light(-1.3, Y2 + H2 - 0.4, 10.6, 0xe8f0ff, 4, 0.7);
   // WC Personal (hinten rechts)
   k.solid(4.6, Y2 + 0.22, 12.8, 0.45, 0.44, 0.6, 0xe8e8e8);
   k.solid(2.4, Y2 + 0.85, 13.2, 0.6, 0.15, 0.4, 0xe0e0e0);
@@ -386,7 +557,7 @@ function buildClubInside(club, terrain, cols) {
 
   const W = (x, y, z) => new THREE.Vector3(O.x + x, O.y + y, O.z + z);
   return {
-    group, O, ball, cones, bruno: bruno.group, plan: k.plan,
+    group, O, ball, cones, bruno: bruno.group, plan: k.plan, lights: k.lights, amb: 0.42,
     floorName: (y) => (y - O.y < Y1 - 1.0 ? 'EG' : y - O.y < Y2 - 0.8 ? '1. OG' : '2. OG'),
     spots: {
       front: W(0.6, 0, 0.9), frontIn: W(0.6, 0, 1.6),
@@ -429,6 +600,8 @@ function buildBlockInside(home, terrain, cols) {
     k.solid(hx / 2, ym - 0.15, (ZM + D) / 2, hx, 0.3, D - ZM, 0x9a948a);   // Zwischenpodest
     k.flight(laneB, lw, ZM, ZF, ym, y + FHs, 8, stepC, 0x5a544a);
     k.G.shape(new THREE.SphereGeometry(0.09, 8, 6), -1.5, y + FHs - 0.55, 2.6, 1, 1, 1, 0xfff0c0);
+    k.light(-1.5, y + FHs - 0.7, 2.6, 0xfff0c0, 4.5, 0.6, 0.6);
+    k.light(hx - 0.5, ym + 1.8, (ZM + D) / 2, 0xfff0c0, 3.5, 0.5);
     k.G.box(hx - 0.1, ym + 1.9, (ZM + D) / 2, 0.05, 0.2, 0.3, 0xfff0c0);
   }
   k.solid(laneB, 0.75, (ZF + ZM) / 2, lw, 1.5, ZM - ZF, 0x8a847a);          // unter dem ersten Lauf
@@ -453,7 +626,7 @@ function buildBlockInside(home, terrain, cols) {
   const FY = 3 * FHs, fx = 3.5, FD = 6, FH = 2.6, FOX = -hx - fx - 0.16;
   const Of = O.clone().add(new THREE.Vector3(FOX, 0, 0));
   const fg = new THREE.Group(); fg.position.set(FOX, 0, 0); group.add(fg);
-  const plan0 = k.plan;
+  const plan0 = k.plan, lights0 = k.lights;
   k = new Kit(Of, cols);
   k.floor(-fx, fx, 0, FD, FY, 0x5a4a3a);
   k.solid(0, FY + FH + 0.1, FD / 2, fx * 2, 0.2, FD, 0xd0c8b0);
@@ -497,13 +670,16 @@ function buildBlockInside(home, terrain, cols) {
   // Teppich, Glühbirne
   k.B.box(-1.6, FY + 0.01, 2.6, 2.0, 0.02, 1.6, 0x6a2a2a);
   k.G.shape(new THREE.SphereGeometry(0.08, 8, 6), 0, FY + FH - 0.5, 3, 1, 1, 1, 0xfff0c0);
+  k.light(0, FY + FH - 0.6, 3, 0xffe8b0, 5, 0.7, 0.6);
+  k.light(-1.0, FY + 1.0, 5.4, 0xffc070, 2.2, 0.7);
+  k.light(-1.2, FY + 0.9, 2.3, 0x8aa0e0, 2.2, 0.5);
   k.B.box(0, FY + FH - 0.25, 3, 0.02, 0.4, 0.02, 0x222222);
   k.door(fx - 0.06, FY, 5.3, -1, 0, 0x8a7a60);                                           // Bad
   k.done(fg);
 
   const W = (x, y, z) => new THREE.Vector3(O.x + x, O.y + y, O.z + z);
   return {
-    group, O, plan: plan0.concat(k.plan),
+    group, O, plan: plan0.concat(k.plan), lights: lights0.concat(k.lights), amb: 0.7,
     floorName: (y, x) => {
       const r = y - O.y;
       if (x !== undefined && x < O.x - hx && r > FY - 1) return 'Wohnung Kasslov';
@@ -592,6 +768,7 @@ export class Interiors {
     this.game.follow.indoor = cols;
     if (this.club) this.club.group.visible = where === 'club';
     if (this.block) this.block.group.visible = where === 'block';
+    this.pickLights();
   }
 
   sleep() {
@@ -605,7 +782,23 @@ export class Interiors {
     }, 300);
   }
 
+  // die nächsten Lampen beim Spieler ins Raumlicht übernehmen
+  pickLights() {
+    const room = this.inside === 'club' ? this.club : this.inside === 'block' ? this.block : null;
+    if (!room) return;
+    const p = this.game.player.position;
+    const near = room.lights.map((l) => [l, Math.hypot(l.p.x - p.x, (l.p.y - p.y - 1) * 2.2, l.p.z - p.z) - l.r]).sort((a, b) => a[1] - b[1]);
+    ROOM_LIGHT.uAmb.value = room.amb;
+    for (let i = 0; i < ROOM_LIGHT.uLP.value.length; i++) {
+      const l = near[i] && near[i][0];
+      if (l) { ROOM_LIGHT.uLP.value[i].copy(l.p); ROOM_LIGHT.uLC.value[i].copy(l.c); ROOM_LIGHT.uLR.value[i] = l.r; }
+      else { ROOM_LIGHT.uLP.value[i].set(0, -1e5, 0); ROOM_LIGHT.uLC.value[i].set(0, 0, 0); ROOM_LIGHT.uLR.value[i] = 1; }
+    }
+  }
+
   update(dt) {
+    this.lightTimer = (this.lightTimer || 0) - dt;
+    if (this.lightTimer <= 0) { this.lightTimer = 0.25; this.pickLights(); }
     if (this.inside === 'club' && this.club) {
       this.club.ball.rotation.y += dt * 0.8;
       const t = performance.now() / 1000;
