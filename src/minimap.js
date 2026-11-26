@@ -5,6 +5,7 @@ export class Minimap {
   constructor(canvas, world) {
     this.canvas = canvas;
     // doppelte Auflösung, damit die runde Karte auf dem Handy scharf ist (gezeichnet wird in 140er-Einheiten)
+    this.world = world;
     this.size = canvas.width;
     canvas.width = canvas.height = this.size * 2;
     this.ctx = canvas.getContext('2d');
@@ -62,6 +63,16 @@ export class Minimap {
       ctx.fillRect(car.x - pos.x - 8, car.z - pos.z - 8, 16, 16);
     }
     ctx.restore();
+    // Orte mit Symbol (klein), nur wenn sie im Kreis liegen
+    const lmk = this.world.landmarks || {};
+    for (const id of ['club', 'home', 'fountain', 'imbiss', 'shop']) {
+      const lm = lmk[id]; if (!lm) continue;
+      const x = lm.door ? lm.door.x : lm.x, z = lm.door ? lm.door.z : lm.z;
+      if (x === undefined) continue;
+      const dx = x - pos.x, dz = z - pos.z, a = Math.PI + camYaw;
+      const px = (dx * Math.cos(a) - dz * Math.sin(a)) * zoom * this.scale, py = (dx * Math.sin(a) + dz * Math.cos(a)) * zoom * this.scale;
+      if (Math.hypot(px, py) < c - 8) drawIcon(ctx, c + px, c + py, id, '', 0.55, false);
+    }
     // Ziel: gelber Punkt, am Rand festgehalten, wenn es weit weg ist
     if (this.target) {
       const dx = this.target.x - pos.x, dz = this.target.z - pos.z;
