@@ -86,41 +86,6 @@ function roofTex() {
   }, true);
 }
 
-// Wandmalerei im Erdgeschoss: Sonnenuntergang mit Palmen-Silhouetten, darüber Graffiti
-function muralTex() {
-  return canvasTex('clubmural', 1024, 256, (g, w, h) => {
-    const sky = g.createLinearGradient(0, 0, 0, h);
-    sky.addColorStop(0, '#3a1a3c'); sky.addColorStop(0.35, '#a23b6a'); sky.addColorStop(0.6, '#e2765a'); sky.addColorStop(0.75, '#f2b26a');
-    sky.addColorStop(0.76, '#5a2040'); sky.addColorStop(1, '#2a1020');
-    g.fillStyle = sky; g.fillRect(0, 0, w, h);
-    g.fillStyle = 'rgba(255,210,140,.85)'; g.beginPath(); g.arc(w * 0.5, h * 0.75, 70, Math.PI, 0); g.fill();
-    const palm = (x, s, lean) => {
-      g.strokeStyle = '#1a0a14'; g.fillStyle = '#1a0a14'; g.lineWidth = 10 * s; g.lineCap = 'round';
-      g.beginPath(); g.moveTo(x, h); g.quadraticCurveTo(x + lean * 0.5, h * 0.55, x + lean, h * 0.22); g.stroke();
-      const tx = x + lean, ty = h * 0.22;
-      for (let k = 0; k < 8; k++) {
-        const a = -Math.PI * 0.95 + k * Math.PI * 0.27;
-        g.beginPath(); g.moveTo(tx, ty);
-        g.quadraticCurveTo(tx + Math.cos(a) * 45 * s, ty + Math.sin(a) * 30 * s - 10, tx + Math.cos(a) * 85 * s, ty + Math.sin(a) * 20 * s + 30 * s);
-        g.quadraticCurveTo(tx + Math.cos(a) * 45 * s, ty + Math.sin(a) * 30 * s + 6, tx, ty);
-        g.fill();
-      }
-    };
-    palm(90, 1.1, 25); palm(210, 0.8, -18); palm(800, 1.15, -28); palm(930, 0.85, 16);
-    // Abblätternde Stellen und Graffiti (eigene Fantasie-Tags)
-    const r = rnd(5);
-    for (let i = 0; i < 9; i++) { g.fillStyle = 'rgba(200,180,160,.5)'; g.fillRect(r() * w, r() * h, 10 + r() * 40, 6 + r() * 20); }
-    const tag = (x, y, col, s) => {
-      g.strokeStyle = col; g.lineWidth = 5 * s; g.lineJoin = 'round';
-      g.beginPath(); g.moveTo(x, y);
-      for (let k = 0; k < 9; k++) g.quadraticCurveTo(x + k * 14 * s + 7, y - 30 * s * r(), x + (k + 1) * 14 * s, y + (r() - 0.5) * 24 * s);
-      g.stroke();
-    };
-    tag(300, 210, '#d8d8e0', 1); tag(560, 230, '#7ad0ff', 0.8); tag(30, 240, '#ffffff', 0.7);
-    g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(0, h - 18, w, 18);
-  });
-}
-
 function graffitiTex(seed) {
   return canvasTex('graffiti' + seed, 256, 128, (g, w, h) => {
     const r = rnd(seed);
@@ -132,20 +97,6 @@ function graffitiTex(seed) {
       for (let k = 0; k < 7; k++) { const nx = x + 25 + r() * 8, ny = 40 + r() * 60; g.bezierCurveTo(x + 10, y - 50 * r(), nx - 10, ny + 40 * r(), nx, ny); x = nx; y = ny; }
       g.stroke();
     }
-  });
-}
-
-// Neonschild: Schriftzug mit Untertitel (leuchtet, ungelichtet)
-function neonSignTex() {
-  return canvasTex('hellsign', 1024, 320, (g, w, h) => {
-    g.fillStyle = '#1a0c12'; g.fillRect(0, 0, w, h);
-    g.strokeStyle = '#ff4f9a'; g.lineWidth = 8; g.shadowColor = '#ff2f86'; g.shadowBlur = 24;
-    g.strokeRect(14, 14, w - 28, h - 28);
-    g.font = 'bold 150px "Arial Black", Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillStyle = '#ffd0e4'; g.fillText("HELL'S CLUB", w / 2, h * 0.42, w - 70);
-    g.shadowBlur = 40; g.fillStyle = 'rgba(255,80,160,.6)'; g.fillText("HELL'S CLUB", w / 2, h * 0.42, w - 70);
-    g.shadowBlur = 14; g.font = 'bold 54px Arial'; g.fillStyle = '#ff9ac4';
-    g.fillText('STRIP  ·  BAR  ·  PRIVATE', w / 2, h * 0.8, w - 120);
   });
 }
 
@@ -242,8 +193,8 @@ function texMesh(pos, uv, mat) {
 }
 
 // Dachflächen: Oberseite einseitig (sonst wirft sie Schatten auf sich selbst), Unterseite dunkel
-function roofMeshes(group, rp, ru, color) {
-  const top = texMesh(rp, ru, new THREE.MeshLambertMaterial({ map: roofTex(), color }));
+function roofMeshes(group, rp, ru, color, tex) {
+  const top = texMesh(rp, ru, new THREE.MeshLambertMaterial({ map: tex === undefined ? roofTex() : tex, color }));
   top.receiveShadow = false;
   group.add(top);
   const bp = [], bu = [];
@@ -277,7 +228,8 @@ function windowAt(B, side, t, y, W, D, opt = {}) {
   else if (side === 'b') { x = t; z = D; nx = 0; nz = 1; ry = 0; }
   else if (side === 'l') { x = -hw; z = t; nx = -1; nz = 0; ry = Math.PI / 2; }
   else { x = hw; z = t; nx = 1; nz = 0; ry = Math.PI / 2; }
-  const at = (o) => [x + nx * o, z + nz * o];
+  const out = opt.out ?? 0;
+  const at = (o) => [x + nx * (o + out), z + nz * (o + out)];
   const [gx, gz] = at(0.03);
   B.box(gx, y, gz, w, h, 0.04, opt.glass ?? 0x1e1416, ry);                    // Glas
   if (opt.curtain !== false) {
@@ -313,140 +265,287 @@ function windowAt(B, side, t, y, W, D, opt = {}) {
 }
 
 // ---------- Hell's Club ----------
+// Nach Nicks Concept Art: alte Gasthaus-Form mit Giebel zur Strasse, gelber Verputz,
+// grüne Läden, zwei Klebdächer, Aussentreppe auf der linken Seite, oranger Anbau rechts,
+// Neon-Schriftzug und Palmen-Graffiti im Erdgeschoss. Drei Etagen plus Dachboden.
+
+// Rosa Wand mit Palmen-Silhouetten, Tags und abgeblättertem Putz (Erdgeschoss vorne)
+function palmWallTex() {
+  return canvasTex('clubpalms', 1024, 256, (g, w, h) => {
+    const bg = g.createLinearGradient(0, 0, w, 0);
+    bg.addColorStop(0, '#a86a84'); bg.addColorStop(0.45, '#cf7f9c'); bg.addColorStop(1, '#b0708c');
+    g.fillStyle = bg; g.fillRect(0, 0, w, h);
+    const r = rnd(21);
+    for (let i = 0; i < 1400; i++) { g.fillStyle = `rgba(${r() < 0.5 ? '0,0,0' : '255,255,255'},${0.03 + r() * 0.05})`; g.fillRect(r() * w, r() * h, 2 + r() * 5, 2 + r() * 5); }
+    const palm = (x, s, lean) => {
+      g.strokeStyle = '#2a1424'; g.fillStyle = '#2a1424'; g.lineWidth = 9 * s; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(x, h); g.quadraticCurveTo(x + lean * 0.5, h * 0.55, x + lean, h * 0.2); g.stroke();
+      const tx = x + lean, ty = h * 0.2;
+      for (let k = 0; k < 8; k++) {
+        const a = -Math.PI * 0.95 + k * Math.PI * 0.27;
+        g.beginPath(); g.moveTo(tx, ty);
+        g.quadraticCurveTo(tx + Math.cos(a) * 45 * s, ty + Math.sin(a) * 30 * s - 10, tx + Math.cos(a) * 85 * s, ty + Math.sin(a) * 20 * s + 30 * s);
+        g.quadraticCurveTo(tx + Math.cos(a) * 45 * s, ty + Math.sin(a) * 30 * s + 6, tx, ty);
+        g.fill();
+      }
+    };
+    palm(150, 1.2, 30); palm(250, 0.75, -15); palm(790, 1.0, -22); palm(880, 0.7, 14);
+    // Gras/Büsche unten
+    g.fillStyle = '#2a1424';
+    for (let x = 0; x < w; x += 14) { const hh = 10 + r() * 26; g.beginPath(); g.moveTo(x, h); g.lineTo(x + 7, h - hh); g.lineTo(x + 14, h); g.fill(); }
+    // abgeblättert: heller Putz darunter
+    for (let i = 0; i < 14; i++) { g.fillStyle = 'rgba(214,196,150,.75)'; g.fillRect(r() * w, r() * h * 0.8, 8 + r() * 36, 5 + r() * 16); }
+    const tag = (x, y, col, s) => {
+      g.strokeStyle = col; g.lineWidth = 5 * s; g.lineJoin = 'round';
+      g.beginPath(); g.moveTo(x, y);
+      for (let k = 0; k < 8; k++) g.quadraticCurveTo(x + k * 14 * s + 7, y - 30 * s * r(), x + (k + 1) * 14 * s, y + (r() - 0.5) * 24 * s);
+      g.stroke();
+    };
+    tag(20, 200, '#e8e8f0', 0.8); tag(940, 120, '#1a1a22', 0.6); tag(600, 235, '#e8e8f0', 0.6);
+    g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(0, h - 14, w, 14);
+  });
+}
+
+// Neon-Schriftzug ohne Kasten (Buchstaben direkt an der Wand)
+function neonLettersTex() {
+  return canvasTex('hellletters', 1024, 256, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    g.font = 'bold 170px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineJoin = 'round';
+    g.shadowColor = '#ff2f86'; g.shadowBlur = 30;
+    g.strokeStyle = '#ff5aa8'; g.lineWidth = 16; g.strokeText("HELL'S CLUB", w / 2, h / 2, w - 40);
+    g.shadowBlur = 8; g.strokeStyle = '#ffe0ef'; g.lineWidth = 6; g.strokeText("HELL'S CLUB", w / 2, h / 2, w - 40);
+  });
+}
+
+// Wellblech (Vordach), rot und angerostet
+function metalTex() {
+  return canvasTex('metalred', 128, 128, (g, w, h) => {
+    g.fillStyle = '#8a2630'; g.fillRect(0, 0, w, h);
+    for (let x = 0; x < w; x += 8) { g.fillStyle = 'rgba(0,0,0,.22)'; g.fillRect(x, 0, 3, h); g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(x + 4, 0, 2, h); }
+    const r = rnd(4);
+    for (let i = 0; i < 30; i++) { g.fillStyle = `rgba(90,50,20,${0.2 + r() * 0.3})`; g.fillRect(r() * w, r() * h, 3 + r() * 10, 2 + r() * 14); }
+  }, true);
+}
+
+// Plakatrahmen mit leuchtender Tänzerin als einfacher Umriss (angezogen, wie ein Barschild)
+function posterTex() {
+  return canvasTex('clubposter', 128, 192, (g, w, h) => {
+    g.fillStyle = '#2a0c1c'; g.fillRect(0, 0, w, h);
+    const grd = g.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, 90);
+    grd.addColorStop(0, '#c0306a'); grd.addColorStop(1, '#3a0c24');
+    g.fillStyle = grd; g.fillRect(8, 8, w - 16, h - 16);
+    g.strokeStyle = '#ffc0dc'; g.lineWidth = 4; g.lineCap = 'round'; g.shadowColor = '#ff4f9a'; g.shadowBlur = 10;
+    g.beginPath();
+    g.arc(64, 46, 12, 0, Math.PI * 2);
+    g.moveTo(64, 58); g.lineTo(60, 100); g.lineTo(46, 112); g.lineTo(82, 112); g.lineTo(68, 100);   // Kleid
+    g.moveTo(58, 112); g.lineTo(54, 168); g.moveTo(70, 112); g.lineTo(76, 168);
+    g.moveTo(62, 66); g.lineTo(40, 30); g.moveTo(66, 66); g.lineTo(88, 84);
+    g.stroke();
+    g.strokeStyle = '#d4af37'; g.lineWidth = 6; g.shadowBlur = 0; g.strokeRect(3, 3, w - 6, h - 6);
+  });
+}
+
 export function buildClub(pts, ctx) {
   const { terrain, chunkAt, colliders } = ctx;
   const F = frameFromFootprint(pts, terrain);
-  const W = F.width, D = F.depth;
+  const W = F.width, D = F.depth, hw = W / 2;
+  // u = Position von der Strasse aus gesehen (+ nach rechts), x = lokales System (+ nach links)
+  const X = (u) => -u;
   const group = new THREE.Group();
   group.position.set(F.fx, F.gMin, F.fz);
   group.rotation.y = F.rotY;
-  const base = -1.6 - (F.gMax - F.gMin) * 0;       // Sockel reicht in den Hang
-  const G = 3.6, H1 = 6.7;                           // Erdgeschoss-Höhe, Traufe
-  const pitch = 0.62;                                // Dachneigung (rad)
-  const ridge = H1 + (W / 2) * Math.tan(pitch);
+  const base = -1.8;
+  const G1 = 3.4, G2 = 6.4, H1 = 9.2;                 // Decke EG, Decke 1. OG, Traufe
+  const pitch = 0.47;
+  const ridge = H1 + hw * Math.tan(pitch);
 
-  // Wände: verwittert beige, unten weinrot
+  // Wände: gelblicher, verwitterter Putz
   const pos = [], uv = [];
-  boxWalls(pos, uv, W, D, G, H1, 5);
-  // Giebeldreiecke vorne und hinten
+  boxWalls(pos, uv, W, D, base, H1, 5);
   for (const [z, sgn] of [[0, -1], [D, 1]]) {
-    const a = [-W / 2 * sgn, H1, z], b = [W / 2 * sgn, H1, z], c = [0, ridge, z];
+    const a = [-hw * sgn, H1, z], b = [hw * sgn, H1, z], c = [0, ridge, z];
     pos.push(...a, ...b, ...c); uv.push(0, H1 / 5, W / 5, H1 / 5, W / 10, ridge / 5);
   }
-  group.add(texMesh(pos, uv, new THREE.MeshLambertMaterial({ map: plasterTex('#c9b9a0', 'club'), side: THREE.FrontSide })));
-  const low = [], lowUv = [];
-  boxWalls(low, lowUv, W, D, base, G, 5);
-  group.add(texMesh(low, lowUv, new THREE.MeshLambertMaterial({ map: plasterTex('#6e2a3a', 'clublow') })));
-  // Wandmalerei auf der Front (Erdgeschoss)
+  group.add(texMesh(pos, uv, new THREE.MeshLambertMaterial({ map: plasterTex('#d6c08a', 'clubyellow') })));
+  // Erdgeschoss vorne: rosa Wand mit Palmen
   const mp = [], mu = [];
-  quad(mp, mu, [W / 2 - 0.3, 0.25, -0.03], [-W / 2 + 0.3, 0.25, -0.03], [-W / 2 + 0.3, G - 0.15, -0.03], [W / 2 - 0.3, G - 0.15, -0.03], [[0, 0], [1, 0], [1, 1], [0, 1]]);
-  group.add(texMesh(mp, mu, new THREE.MeshLambertMaterial({ map: muralTex() })));
+  quad(mp, mu, [hw - 0.15, 0.05, -0.03], [-hw + 0.15, 0.05, -0.03], [-hw + 0.15, G1 - 0.1, -0.03], [hw - 0.15, G1 - 0.1, -0.03], [[0, 0], [1, 0], [1, 1], [0, 1]]);
+  group.add(texMesh(mp, mu, new THREE.MeshLambertMaterial({ map: palmWallTex() })));
+  // Oranger Anbau rechts im 1. OG (steht etwas vor)
+  const a0 = hw - 2.9, a1 = hw - 0.05, ad = 0.3;
+  const op = [], ou = [];
+  quad(op, ou, [X(a0), G1, -ad], [X(a1), G1, -ad], [X(a1), G2, -ad], [X(a0), G2, -ad], [[0, 0], [0.6, 0], [0.6, 0.6], [0, 0.6]]);
+  quad(op, ou, [X(a0), G1, 0], [X(a0), G1, -ad], [X(a0), G2, -ad], [X(a0), G2, 0], [[0, 0], [0.06, 0], [0.06, 0.6], [0, 0.6]]);
+  quad(op, ou, [X(a1), G1, -ad], [X(a1), G1, 0], [X(a1), G2, 0], [X(a1), G2, -ad], [[0, 0], [0.06, 0], [0.06, 0.6], [0, 0.6]]);
+  group.add(texMesh(op, ou, new THREE.MeshLambertMaterial({ map: plasterTex('#c9622c', 'clubannex') })));
 
-  // Dach mit Überstand, Sparren und Kamin
-  const ov = 0.9, ovF = 1.1;
+  // Hauptdach mit grossem Vordach am Giebel
+  const ov = 1.2, ovF = 1.9;
   const rp = [], ru = [];
   const eaveY = H1 - ov * Math.tan(pitch);
-  const zl0 = -ovF, zl1 = D + ovF;
+  const zl0 = -ovF, zl1 = D + 1.0;
+  const slope = Math.hypot(hw + ov, ridge - eaveY);
   for (const s of [-1, 1]) {
-    const e = [s * (W / 2 + ov), eaveY], r = [0, ridge + 0.05];
-    const A = [e[0], e[1], zl0], B2 = [e[0], e[1], zl1], C2 = [r[0], r[1], zl1], D2 = [r[0], r[1], zl0];
-    const slope = Math.hypot(W / 2 + ov, ridge - eaveY);
+    const e = s * (hw + ov);
+    const A = [e, eaveY, zl0], B2 = [e, eaveY, zl1], C2 = [0, ridge + 0.05, zl1], D2 = [0, ridge + 0.05, zl0];
     if (s > 0) quad(rp, ru, A, D2, C2, B2, [[0, 0], [0, slope / 3], [(zl1 - zl0) / 3, slope / 3], [(zl1 - zl0) / 3, 0]]);
     else quad(rp, ru, A, B2, C2, D2, [[0, 0], [(zl1 - zl0) / 3, 0], [(zl1 - zl0) / 3, slope / 3], [0, slope / 3]]);
   }
-  roofMeshes(group, rp, ru, 0xffffff);
+  roofMeshes(group, rp, ru, 0xb0a8a0);
+
+  // Klebdächer: rotes Wellblech über dem Eingang, braunes Band über dem 1. OG (mit Ecken)
+  const pent = (x0, x1, y, d, drop, tex, color) => {
+    const p = [], q = [];
+    quad(p, q, [x0, y, 0], [x1, y, 0], [x1, y - drop, -d], [x0, y - drop, -d], [[0, 0], [(x1 - x0) / 2, 0], [(x1 - x0) / 2, d / 2], [0, d / 2]]);
+    roofMeshes(group, p, q, color, tex);
+  };
+  pent(X(4.3), X(-4.6), G1 + 0.15, 1.5, 0.4, metalTex(), 0xffffff);
+  pent(X(hw + 0.3), X(-hw - 0.3), G2 + 0.25, 1.0, 0.35, null, 0x9a8a80);
+
   const B = new Builder();
-  // Dachkanten (Ortgang) und Sparren
+  const wood = 0x4a2e1c, woodD = 0x2e1c12;
+  // Ortgang-Bretter, Pfetten und Sparrenköpfe
+  const ang = Math.atan2(ridge - eaveY, hw + ov);
   for (const s of [-1, 1]) {
-    const len = Math.hypot(W / 2 + ov, ridge - eaveY);
-    const ang = Math.atan2(ridge - eaveY, W / 2 + ov);
-    for (const z of [zl0 + 0.08, zl1 - 0.08]) {
-      B.shape(new THREE.BoxGeometry(len, 0.22, 0.14), s * (W / 4 + ov / 2), (eaveY + ridge) / 2 - 0.08, z, 1, 1, 1, 0x3a2418, 0, 0, -s * ang);
-    }
-    for (let z = 0.4; z < D; z += 1.1) B.box(s * (W / 2 + ov / 2), H1 - ov * Math.tan(pitch) / 2 - 0.12, z, ov + 0.2, 0.14, 0.12, 0x3a2418);
-    B.box(s * (W / 2 + ov), eaveY - 0.12, D / 2, 0.16, 0.16, D + ovF * 2, 0x4a4a48);            // Dachrinne
+    for (const z of [zl0 + 0.1, zl1 - 0.1]) B.shape(new THREE.BoxGeometry(slope, 0.32, 0.12), s * (hw + ov) / 2, (eaveY + ridge) / 2 - 0.12, z, 1, 1, 1, woodD, 0, 0, -s * ang);
+    for (let z = -ovF + 0.6; z < D; z += 0.9) B.box(s * (hw + ov / 2), eaveY + ov * Math.tan(pitch) / 2 - 0.2, z, ov + 0.1, 0.14, 0.12, wood);
+    B.box(s * (hw + ov), eaveY - 0.12, (zl0 + zl1) / 2, 0.16, 0.16, zl1 - zl0, 0x5a5a58);    // Dachrinne
+    B.box(s * (hw - 0.1), (base + eaveY) / 2, -0.12, 0.12, eaveY - base, 0.12, 0x6a6a68); // Fallrohr
   }
-  B.box(W * 0.18, ridge - 0.3, D * 0.62, 0.8, 2.2, 0.8, 0x6a5a4c);                                // Kamin
-  B.box(W * 0.18, ridge + 0.85, D * 0.62, 0.95, 0.12, 0.95, 0x3a3230);
-  // Fallrohre an den Ecken
-  for (const s of [-1, 1]) B.box(s * (W / 2 - 0.15), (base + eaveY) / 2, -0.12, 0.12, eaveY - base, 0.12, 0x5a5a58);
+  for (const xp of [0, -hw * 0.5, hw * 0.5, -hw, hw]) {
+    const yr = ridge - Math.abs(xp) * Math.tan(pitch) - 0.3;
+    B.box(xp, yr, (zl0 + D) / 2, 0.24, 0.3, D - zl0 + 0.2, wood);                           // Pfette
+    if (Math.abs(xp) > 0.1) B.shape(new THREE.BoxGeometry(0.14, 1.6, 0.14), xp * 0.96, yr - 0.6, -0.75, 1, 1, 1, woodD, 0, Math.PI / 4.5, 0); // Büge
+  }
+  B.box(-hw * 0.3, ridge - 0.2, D * 0.65, 0.7, 2.0, 0.7, 0x7a6a5c);                       // Kamin
+  B.box(-hw * 0.3, ridge + 0.85, D * 0.65, 0.85, 0.1, 0.85, 0x3a3230);
+  // Holzbalken unter den Klebdächern
+  B.box(X(-0.15), G2 + 0.12, -0.05, W, 0.18, 0.12, wood);
+  B.box(X(-0.15), G1 + 0.08, -0.05, 9.2, 0.14, 0.12, woodD);
 
-  // Fenster: vorne oben zwei (Mitte frei für das Schild), Giebelfenster, Seiten
-  const shutter = 0x5a2226;
-  windowAt(B, 'f', -W * 0.31, G + 1.55, W, D, { shutter, askew: true });
-  windowAt(B, 'f', W * 0.31, G + 1.55, W, D, { shutter, broken: true });
-  windowAt(B, 'f', 0, H1 + 1.0, W, D, { w: 0.9, h: 1.1, shutter: 0x4a1c20, curtain: 0x5a1a2a });
+  // Fenster mit grünen Läden
+  const sh = { shutter: 0x2f4a36, frame: 0xe2dccb, curtain: 0x8a2a3a, glass: 0x3a1a22 };
+  // 1. OG vorne: zwei links, eins rechts vom Schild, eins im Anbau
+  for (const u of [-5.2, 2.9]) windowAt(B, 'f', X(u), G1 + 1.55, W, D, sh);
+  windowAt(B, 'f', X(hw - 1.45), G1 + 1.55, W, D, { ...sh, shutter: null, out: ad });
+  // 2. OG vorne: drei, Dachboden zwei
+  for (const u of [-3.6, 0, 3.6]) windowAt(B, 'f', X(u), G2 + 1.45, W, D, { ...sh, broken: u === 3.6 });
+  for (const u of [-1.4, 1.4]) windowAt(B, 'f', X(u), H1 + 1.15, W, D, { ...sh, w: 0.9, h: 1.15 });
+  windowAt(B, 'f', X(hw - 1.45), 1.7, W, D, { ...sh, shutter: null, curtain: 0x5a1a2a });   // EG rechts
+  // Seiten und hinten
   for (const side of ['l', 'r']) {
-    for (let k = 0; k < 3; k++) windowAt(B, side, D * (0.22 + k * 0.28), G + 1.55, W, D, { shutter, broken: k === 1 && side === 'l', askew: k === 2 });
-    windowAt(B, side, D * 0.7, 1.9, W, D, { w: 0.9, h: 0.9, curtain: false, glass: 0x241a1c, frame: 0x4a3a34 });
+    const stairs = side === 'l';       // Aussentreppe auf der linken Seite (lokal +x)
+    for (const [y, list] of [[1.7, [3.5, 9.5, 12]], [G1 + 1.5, stairs ? [2.6, 10.5, 12.6] : [2.5, 5.5, 8.5, 11.5]], [G2 + 1.4, [2.5, 5.5, 8.5, 11.5]]]) {
+      for (const z of list) if (z < D - 0.8) windowAt(B, side, z, y, W, D, { ...sh, w: 0.95, h: y < 2 ? 1.1 : 1.35, broken: z === 5.5 && side === 'r' });
+    }
   }
-  for (let k = 0; k < 3; k++) windowAt(B, 'b', -W * 0.3 + k * W * 0.3, G + 1.55, W, D, { shutter });
-  windowAt(B, 'b', W * 0.25, 1.8, W, D, { w: 1.6, h: 1.2, curtain: 0x5a1a2a });
+  for (const u of [-3.5, 0, 3.5]) { windowAt(B, 'b', X(u), G1 + 1.5, W, D, sh); windowAt(B, 'b', X(u), G2 + 1.4, W, D, sh); }
+  windowAt(B, 'b', X(2.5), 1.6, W, D, { w: 1.0, h: 1.0, curtain: false, glass: 0x241a1c, frame: 0x4a3a34 });
 
-  // Eingang: rote Doppeltür, Vordach mit Neonkante, Lampen, Absperrkordel, roter Teppich
-  B.box(0, 1.2, 0.05, 2.2, 2.6, 0.2, 0x2a0c10);                                                 // Türnische
-  for (const s of [-1, 1]) B.box(s * 0.47, 1.15, -0.04, 0.9, 2.3, 0.06, 0x8a1420);              // Türflügel
-  for (const s of [-1, 1]) B.box(s * 0.12, 1.15, -0.09, 0.05, 0.4, 0.05, 0xd4af37);             // Griffe
-  B.box(0, 2.75, -0.8, 3.4, 0.2, 1.6, 0x2a1a1e);                                                // Vordach
-  B.box(0, -0.0, -1.9, 1.6, 0.03, 2.6, 0x8a1424);                                               // Teppich
-  for (const s of [-1, 1]) for (const z of [-1.0, -2.8]) {
-    B.box(s * 1.25, 0.45, z, 0.07, 0.9, 0.07, 0xd4af37);
-    B.box(s * 1.25, 0.92, z, 0.14, 0.06, 0.14, 0xd4af37);
+  // Eingang (leicht rechts der Mitte): rote Glas-Doppeltür, Plakate, Palmen in Töpfen, Kordel
+  const du = 0.6, dx = X(du);
+  B.box(dx, 1.25, 0.05, 2.3, 2.7, 0.2, 0x1a080c);
+  for (const s of [-1, 1]) {
+    B.box(dx + s * 0.5, 1.2, -0.05, 0.95, 2.4, 0.06, 0x6a0c18);
+    B.box(dx + s * 0.5, 1.35, -0.09, 0.6, 1.6, 0.02, 0xb03050);                     // Glas, rot hinterleuchtet
+    B.box(dx + s * 0.1, 1.15, -0.12, 0.04, 0.5, 0.05, 0xd4af37);
   }
-  for (const s of [-1, 1]) B.shape(new THREE.BoxGeometry(0.05, 0.05, 1.8), s * 1.25, 0.72, -1.9, 1, 1, 1, 0x9a1020);
-  // Klimagerät, Container, Abfallsäcke, Mülltonne
-  B.box(-W / 2 - 0.2, G + 1.0, D * 0.45, 0.4, 0.6, 0.9, 0xcfcbc0);
-  B.box(-W / 2 - 0.42, G + 1.0, D * 0.45, 0.04, 0.45, 0.45, 0x3a3a3a);
-  B.box(-W / 2 + 1.6, 0.6, -1.5, 2.0, 1.2, 1.2, 0x3e4a42);
-  B.box(-W / 2 + 1.6, 1.25, -1.5, 2.05, 0.1, 1.25, 0x2e3832);
-  for (const [x, z, s] of [[-W / 2 + 0.3, -1.2, 0.45], [-W / 2 + 0.7, -0.6, 0.38], [W / 2 - 0.6, -0.7, 0.42]]) {
-    B.shape(new THREE.SphereGeometry(1, 7, 5), x, s * 0.8, z, s, s * 0.9, s, 0x161616);
+  B.box(dx, 2.6, -0.5, 2.8, 0.12, 1.0, 0x2a1418);                                        // kleines Vordach über der Tür
+  for (const s of [-1, 1]) {
+    const px = dx + s * 1.45;
+    B.shape(new THREE.CylinderGeometry(0.28, 0.2, 0.55, 8), px, 0.28, -0.45, 1, 1, 1, 0x5a5a5e);   // Topf
+    B.shape(new THREE.CylinderGeometry(0.05, 0.07, 1.0, 6), px, 1.0, -0.45, 1, 1, 1, 0x4a3a20);
+    for (let k = 0; k < 6; k++) B.shape(new THREE.BoxGeometry(0.9, 0.03, 0.22), px + Math.cos(k) * 0.32, 1.45, -0.45 + Math.sin(k) * 0.32, 1, 1, 1, 0x2e5a2a, k * 1.05, 0, -0.5);
   }
-  B.box(W / 2 - 1.3, 0.5, -0.6, 0.6, 1.0, 0.6, 0x4a4e52);
+  B.box(dx, 0.0, -1.6, 1.8, 0.03, 3.0, 0x8a1424);                                         // Teppich
+  for (const s of [-1, 1]) for (const z of [-1.1, -2.9]) {
+    B.box(dx + s * 1.2, 0.45, z, 0.07, 0.9, 0.07, 0xd4af37);
+    B.box(dx + s * 1.2, 0.93, z, 0.14, 0.06, 0.14, 0xd4af37);
+  }
+  for (const s of [-1, 1]) B.shape(new THREE.BoxGeometry(0.05, 0.05, 1.8), dx + s * 1.2, 0.72, -2.0, 1, 1, 1, 0x9a1020);
+
+  // Aussentreppe links (lokal +x) hinauf zur Holztür im 1. OG
+  const steps = 19, rise = G1 / steps, run = 0.3, z0 = 0.7, sw = 1.3;
+  const sx = hw + 0.05 + sw / 2;
+  const walk = [];
+  for (let i = 0; i < steps; i++) {
+    const top = (i + 1) * rise, zc = z0 + i * run + run / 2;
+    B.box(sx, top / 2 + base / 2, zc, sw, top - base, run, i % 2 ? 0x8e8a84 : 0x96928b);
+    walk.push([sx, zc, sw / 2, run / 2, top]);
+  }
+  const zl = z0 + steps * run, landD = 1.8;
+  B.box(sx, (G1 + base) / 2, zl + landD / 2, sw, G1 - base, landD, 0x8e8a84);
+  walk.push([sx, zl + landD / 2, sw / 2, landD / 2, G1]);
+  // Geländer
+  const railLen = Math.hypot(steps * run, G1);
+  B.shape(new THREE.BoxGeometry(0.05, 0.05, railLen), sx + sw / 2 - 0.05, G1 / 2 + 0.95, z0 + steps * run / 2, 1, 1, 1, 0x3a3a3c, 0, -Math.atan2(G1, steps * run), 0);
+  for (let i = 0; i <= steps; i += 3) B.box(sx + sw / 2 - 0.05, (i * rise) + 0.5, z0 + i * run, 0.04, 1.0, 0.04, 0x3a3a3c);
+  B.box(sx + sw / 2 - 0.05, G1 + 0.95, zl + landD / 2, 0.05, 0.05, landD, 0x3a3a3c);
+  for (const z of [zl + 0.6, zl + landD]) B.box(sx + sw / 2 - 0.05, G1 + 0.5, z, 0.04, 1.0, 0.04, 0x3a3a3c);
+  // Holztür oben
+  const doorZ = zl + landD / 2;
+  B.box(hw + 0.04, G1 + 1.1, doorZ, 0.08, 2.15, 1.0, 0x6a4424);
+  B.box(hw + 0.09, G1 + 1.1, doorZ - 0.33, 0.04, 0.08, 0.08, 0xc0a040);
+  B.box(hw + 0.08, G1 + 2.3, doorZ, 0.12, 0.12, 1.25, 0x3a2416);
+  // Mülltonnen neben der Treppe, Klimagerät hinten
+  for (const [z, c] of [[-0.6, 0x3a4a3e], [-1.6, 0x2e3a34], [0.4, 0x2a2e30]]) {
+    B.box(sx + 1.6, 0.6, z, 0.75, 1.2, 0.85, c);
+    B.box(sx + 1.6, 1.24, z - 0.05, 0.8, 0.08, 0.95, 0x1e2422);
+  }
+  B.box(X(-3), 2.2, D + 0.25, 0.9, 0.6, 0.45, 0xcfcbc0);
+  for (const [x, z, s] of [[sx + 2.5, -1.0, 0.4], [sx + 2.4, 0.2, 0.34]]) B.shape(new THREE.SphereGeometry(1, 7, 5), x, s * 0.8, z, s, s * 0.9, s, 0x161616);
 
   const plain = B.build(new THREE.MeshLambertMaterial({ vertexColors: true }), 0.5);
   plain.castShadow = true; plain.receiveShadow = true;
   group.add(plain);
 
-  // Leuchtendes: Schild, Figur, Neonleisten, Lampen (ungelichtet, damit sie glühen)
+  // Leuchtendes
   const glow = (tex, transparent = false) => new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, transparent, depthWrite: !transparent });
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(5.0, 1.56), glow(neonSignTex()));
-  sign.position.set(0, G + 0.35, -0.25); sign.rotation.y = Math.PI;
-  const signBox = new THREE.Mesh(new THREE.BoxGeometry(5.2, 1.7, 0.25), new THREE.MeshLambertMaterial({ color: 0x1a1014 }));
-  signBox.position.set(0, G + 0.35, -0.12);
-  const fig = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.3), glow(neonFigureTex(), true));
-  fig.position.set(0.4, G + 1.75, -0.3); fig.rotation.y = Math.PI;
-  group.add(signBox, sign, fig);
+  const letters = new THREE.Mesh(new THREE.PlaneGeometry(6.0, 1.5), glow(neonLettersTex(), true));
+  letters.position.set(X(-1.15), G1 + 0.95, -0.08); letters.rotation.y = Math.PI;
+  const fig = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.8), glow(neonFigureTex(), true));
+  fig.position.set(X(-0.9), G1 + 2.25, -0.08); fig.rotation.y = Math.PI;
+  group.add(letters, fig);
+  for (const u of [-2.3, 3.3]) {
+    const pst = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 1.25), glow(posterTex()));
+    pst.position.set(X(u), 1.55, -0.07); pst.rotation.y = Math.PI;
+    group.add(pst);
+  }
   const neonB = new Builder();
-  neonB.box(0, 2.64, -1.6, 3.4, 0.06, 0.06, 0xff4f9a);
-  for (const s of [-1, 1]) neonB.box(s * 1.7, 2.64, -0.8, 0.06, 0.06, 1.6, 0xff4f9a);
-  for (const s of [-1, 1]) neonB.box(s * 1.13, 1.2, -0.1, 0.06, 2.5, 0.06, 0xff4f9a);         // Türrahmen
-  neonB.box(0, 2.45, -0.1, 2.3, 0.06, 0.06, 0xff4f9a);
-  for (const s of [-1, 1]) neonB.box(s * (W / 2 - 1.4), G - 0.35, -0.12, 0.35, 0.2, 0.18, 0xffd890); // Wandlampen
-  for (const [x, y] of [[-0.7, 2.6], [0.7, 2.6], [0, 2.6]]) neonB.box(x, y, -1.2, 0.18, 0.04, 0.18, 0xfff0c0); // Spots im Vordach
-  neonB.box(0, 1.2, 0.0, 1.9, 2.3, 0.04, 0xa01a3a);                                              // rotes Licht im Türspalt
+  for (const s of [-1, 1]) neonB.box(dx + s * 1.18, 1.3, -0.1, 0.06, 2.6, 0.06, 0xff4f9a);
+  neonB.box(dx, 2.55, -0.1, 2.4, 0.06, 0.06, 0xff4f9a);
+  for (const u of [-2.6, 3.6]) neonB.box(X(u), G1 - 0.3, -0.15, 0.32, 0.18, 0.2, 0xffd890);     // Wandlampen
+  neonB.box(X(-5.6), 3.0, -0.12, 0.3, 0.18, 0.2, 0xffd890);
+  neonB.box(sx - 0.55, G1 + 2.15, doorZ, 0.25, 0.2, 0.25, 0xffe0a0);                             // Lampe über der Holztür
   const neon = neonB.build(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
   group.add(neon);
-  // Graffiti an Seite und Container
-  for (const [x, y, z, ry, seed] of [[-W / 2 - 0.04, 1.3, D * 0.3, -Math.PI / 2, 3], [W / 2 + 0.04, 1.2, D * 0.55, Math.PI / 2, 8], [-W / 2 + 1.6, 0.7, -2.12, Math.PI, 11]]) {
-    const gm = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), new THREE.MeshLambertMaterial({ map: graffitiTex(seed), transparent: true, depthWrite: false }));
+  // Graffiti an den Seiten
+  for (const [x, y, z, ry, seed] of [[hw + 0.04, 1.2, 9.0, Math.PI / 2, 3], [-hw - 0.04, 1.2, D * 0.45, -Math.PI / 2, 8], [-hw - 0.04, 1.3, D * 0.8, -Math.PI / 2, 13]]) {
+    const gm = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.3), new THREE.MeshLambertMaterial({ map: graffitiTex(seed), transparent: true, depthWrite: false }));
     gm.position.set(x, y, z); gm.rotation.y = ry;
     group.add(gm);
   }
 
   (chunkAt(F.ox, F.oz).extra ||= []).push(group);
 
-  // Kollision: Hauptkörper, Container, Mülltonne
+  // Kollision: Hauptkörper, Treppe (begehbar), Mülltonnen, Pflanzen
   const oy = F.gMin;
-  const bxL = F.ax, bzL = F.az;
-  colliders.addOrientedBox(F.ox, F.oz, bxL, bzL, F.L / 2, F.W / 2, oy - 2, oy + ridge + 1);
-  for (const [x, z, r] of [[-W / 2 + 1.6, -1.5, 1.0], [W / 2 - 1.3, -0.6, 0.4]]) {
+  colliders.addOrientedBox(F.ox, F.oz, F.ax, F.az, F.L / 2, F.W / 2, oy - 2, oy + ridge + 1);
+  const c = Math.cos(F.rotY), s = Math.sin(F.rotY);
+  // lokale x-Achse in Weltkoordinaten: (c, -s)
+  for (const [x, z, hu, hv, top] of walk) {
+    const [wx, wz] = F.toWorld(x, z);
+    colliders.addOrientedBox(wx, wz, c, -s, hu, hv, oy + base, oy + top).walk = true;
+  }
+  for (const [x, z, r] of [[sx + 1.6, -0.6, 0.5], [sx + 1.6, -1.6, 0.5], [sx + 1.6, 0.4, 0.5], [dx - 1.45, -0.45, 0.3], [dx + 1.45, -0.45, 0.3]]) {
     const [wx, wz] = F.toWorld(x, z);
     colliders.addCircle(wx, wz, r);
   }
 
-  const [dx, dz] = F.toWorld(0, -2.6);
-  const result = { id: 'club', name: "Hell's Club", door: { x: dx, z: dz }, x: F.ox, z: F.oz, heading: F.rotY };
+  const [ex, ez] = F.toWorld(dx, -2.6);
+  const [ux, uz] = F.toWorld(sx, doorZ);
+  const result = { id: 'club', name: "Hell's Club", door: { x: ex, z: ez }, upperDoor: { x: ux, z: uz, y: oy + G1 }, x: F.ox, z: F.oz, heading: F.rotY };
   // Parkplatz hinter dem Haus
   const [px, pz] = F.toWorld(0, D + 9);
   const pg = terrain.heightAt(px, pz);
