@@ -1,0 +1,39 @@
+{
+  "name": "Muotathal",
+  "size": 4000,
+  "res": 10,
+  "n": 401,
+  "baseHeight": 590,
+  "minHeight": 591.1871948242188,
+  "maxHeight": 1786.6533203125,
+  "backdrop": {
+    "size": 16000,
+    "res": 80,
+    "n": 201,
+    "baseHeight": 505,
+    "source": "AWS Terrain Tiles (Tilezen; u.a. SRTM, EU-DEM)"
+  },
+  "lv95": {
+    "E0": 2700840,
+    "N0": 1203700,
+    "minE": 2698840,
+    "maxE": 2702840,
+    "minN": 1201700,
+    "maxN": 1205700
+  },
+  "center": {
+    "lat": 46.9767,
+    "lon": 8.764
+  },
+  "created": "2026-11-26T00:33:17.268Z",
+  "sources": {
+    "terrain": "swissALTI3D © swisstopo",
+    "osm": "© OpenStreetMap-Mitwirkende (ODbL)"
+  },
+  "counts": {
+    "roads": 480,
+    "buildings": 1197,
+    "water": 77,
+    "places": 24
+  }
+}

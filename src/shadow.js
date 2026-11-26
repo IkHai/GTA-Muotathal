@@ -16,10 +16,10 @@ function getTexture() {
   return texture;
 }
 
-export function makeBlobShadow(w, d) {
+export function makeBlobShadow(w, d, opacity = 1) {
   const m = new THREE.Mesh(
     new THREE.PlaneGeometry(w, d),
-    new THREE.MeshBasicMaterial({ map: getTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 })
+    new THREE.MeshBasicMaterial({ map: getTexture(), transparent: true, opacity, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 })
   );
   m.rotation.x = -Math.PI / 2;
   m.renderOrder = 1;

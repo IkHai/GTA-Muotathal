@@ -1,0 +1,49 @@
+# Lädt echte Geodaten (swisstopo + OpenStreetMap) und legt sie in den Ordner data/.
+# Läuft automatisch, wenn sich das Skript ändert, oder per Knopf unter "Actions".
+name: Geodaten aktualisieren
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['claude/**']
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/geodaten.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: geodaten-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Abhängigkeiten installieren
+        working-directory: scripts
+        run: npm install --no-audit --no-fund
+
+      - name: Geodaten laden und umwandeln
+        working-directory: scripts
+        run: node build-geodata.mjs
+
+      - name: Ergebnis speichern
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "Keine Änderungen an den Geodaten."
+          else
+            git commit -m "Geodaten aktualisiert (swisstopo + OpenStreetMap)"
+            git push
+          fi

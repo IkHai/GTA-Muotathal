@@ -1,12 +1,14 @@
 import * as THREE from 'three';
-import { buildWorld } from './world.js';
+import { loadWorld } from './world.js';
 import { Input } from './input.js';
 import { Player } from './player.js';
 import { Car } from './car.js';
 import { FollowCamera } from './camera.js';
 import { Minimap } from './minimap.js';
 
-const SKY = 0x8fb7dc;
+import { setRenderer } from './textures.js';
+
+const HAZE = 0xb4c0c6;
 const startEl = document.getElementById('start');
 startEl.classList.add('loading');
 
@@ -16,25 +18,72 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPrefer
 let pixelRatio = Math.min(devicePixelRatio || 1, 1.5);
 renderer.setPixelRatio(pixelRatio);
 renderer.setSize(innerWidth, innerHeight, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.25;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+setRenderer(renderer);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(SKY);
-scene.fog = new THREE.Fog(SKY, 90, 430);
+scene.background = new THREE.Color(HAZE);
+scene.fog = new THREE.Fog(HAZE, 250, 5200);
 
-const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.3, 900);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.5, 9000);
 
-// Licht: Sonne + Himmel/Boden-Licht
-scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x5a6b3a, 1.5));
-const sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
-sun.position.set(-0.5, 1, -0.35);
-scene.add(sun);
+// Licht: warme Nachmittagssonne, bläulicher Himmel, bräunlicher Boden
+scene.add(new THREE.HemisphereLight(0xc4d6e8, 0x6a5c40, 1.5));
+const sunDir = new THREE.Vector3(-0.55, 0.62, -0.56).normalize();
+const sun = new THREE.DirectionalLight(0xffdcae, 2.6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+const sc = sun.shadow.camera;
+sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45; sc.near = 1; sc.far = 500;
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.04;
+scene.add(sun, sun.target);
 
-// Sonne am Himmel
-const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(18, 16), new THREE.MeshBasicMaterial({ color: 0xfff6d8, fog: false }));
+// Himmel: Verlauf vom dunstigen Horizont zu tiefem Blau
+const sky = (() => {
+  const g = new THREE.SphereGeometry(8500, 24, 12);
+  const col = [], p = g.attributes.position;
+  const top = new THREE.Color(0x5f86b4), mid = new THREE.Color(0x9fb6cc), hor = new THREE.Color(HAZE);
+  const c = new THREE.Color();
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i) / 8500;
+    if (y < 0.05) c.copy(hor); else if (y < 0.3) c.copy(hor).lerp(mid, (y - 0.05) / 0.25); else c.copy(mid).lerp(top, Math.min(1, (y - 0.3) / 0.5));
+    col.push(c.r, c.g, c.b);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  m.renderOrder = -1;
+  return m;
+})();
+scene.add(sky);
+
+// Sonne am Himmel mit Schein
+const sunDisc = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 6, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255,250,235,1)'); grad.addColorStop(0.15, 'rgba(255,240,210,0.9)');
+  grad.addColorStop(0.4, 'rgba(255,225,180,0.25)'); grad.addColorStop(1, 'rgba(255,220,170,0)');
+  g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  return new THREE.Sprite(new THREE.SpriteMaterial({ map: t, fog: false, depthWrite: false, transparent: true }));
+})();
+sunDisc.scale.set(1400, 1400, 1);
 scene.add(sunDisc);
 
 // ---------- Welt und Spielfiguren ----------
-const world = buildWorld(scene);
+const loadingEl = document.getElementById('loading');
+let world;
+try {
+  world = await loadWorld(scene, (t) => { loadingEl.textContent = t; });
+} catch (e) {
+  loadingEl.textContent = 'Fehler beim Laden der Karte: ' + e.message;
+  throw e;
+}
+document.getElementById('credits').textContent = 'Karte: ' + [world.meta.sources.terrain, world.meta.sources.osm].filter(Boolean).join(' · ');
 const input = new Input();
 const player = new Player(scene, world);
 const cars = world.carSpawns.map((s) => new Car(scene, world, s));
@@ -86,14 +135,17 @@ function exitCar() {
   input.setDriving(false);
 }
 
-// Gebiet-Anzeige wie bei Open-World-Spielen
+// Gebiet-Anzeige: nächster Ortsname aus OpenStreetMap
 let lastArea = '';
 function areaName() {
-  const z = player.position.z;
-  if (currentCar ? false : player.position.y > 40) return 'Bergwald';
-  if (z < -40) return 'Talboden Süd';
-  if (z < 160) return 'Muotathal Dorf';
-  return 'Hinterthal';
+  const p = player.position;
+  let best = 'Muotathal', bestD = Infinity;
+  for (const pl of world.places) {
+    const w = { village: 1.6, town: 1.8, hamlet: 1, locality: 0.8, neighbourhood: 0.9, isolated_dwelling: 0.5 }[pl.type] || 1;
+    const d = Math.hypot(pl.x - p.x, pl.z - p.z) / w;
+    if (d < bestD) { bestD = d; best = pl.name; }
+  }
+  return best;
 }
 
 // ---------- Hauptschleife ----------
@@ -130,9 +182,13 @@ function frame(now) {
   follow.update(dt, look, target, currentCar ? 'car' : 'foot', currentCar ? currentCar.heading : 0, currentCar ? currentCar.speed : 0);
 
   // Sonne und Wolken
-  sunDisc.position.copy(camera.position).addScaledVector(sun.position.clone().normalize(), 600);
-  sunDisc.lookAt(camera.position);
-  world.clouds.position.x = ((now / 1000) * 1.5) % 120;
+  sunDisc.position.copy(camera.position).addScaledVector(sunDir, 8000);
+  sky.position.copy(camera.position);
+  // Schatten folgen der Figur
+  sun.target.position.copy(target);
+  sun.position.copy(target).addScaledVector(sunDir, 250);
+  world.clouds.position.x = ((now / 1000) * 4) % 600;
+  world.updateVisibility(camera.position);
 
   speedEl.textContent = currentCar ? currentCar.kmh + ' km/h' : '';
 
@@ -150,7 +206,12 @@ function frame(now) {
     const fps = fpsFrames / fpsTime;
     fpsEl.textContent = Math.round(fps) + ' FPS';
     if (fps < 28) slowTime++; else slowTime = 0;
-    if (slowTime >= 3 && pixelRatio > 0.6) {
+    if (slowTime >= 3 && renderer.shadowMap.enabled && pixelRatio <= 1.0) {
+      // zuerst Schatten abschalten, wenn die Auflösung schon tief ist
+      renderer.shadowMap.enabled = false; sun.castShadow = false;
+      scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
+      slowTime = 0;
+    } else if (slowTime >= 3 && pixelRatio > 0.6) {
       pixelRatio = Math.max(0.6, pixelRatio - 0.2);
       renderer.setPixelRatio(pixelRatio);
       renderer.setSize(innerWidth, innerHeight, false);
@@ -170,7 +231,9 @@ addEventListener('orientationchange', () => setTimeout(resize, 200));
 
 // ---------- Start ----------
 startEl.classList.remove('loading');
+follow.yaw = Math.atan2(world.carSpawns[0] ? world.carSpawns[0].x - player.position.x : 0, world.carSpawns[0] ? world.carSpawns[0].z - player.position.z : 1);
 follow.update(0.016, { x: 0, y: 0 }, player.position, 'foot', 0, 0);
+world.updateVisibility(camera.position);
 requestAnimationFrame(frame);
 
 startEl.addEventListener('pointerup', async () => {

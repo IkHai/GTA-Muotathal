@@ -34,16 +34,30 @@ Jede Änderung, die in `main` gemergt wird, ist danach automatisch online.
 
 ## Was drin ist
 
-- Tal mit Strasse, Fluss (Muota), Dorf mit Kirche, Ställen, Tannenwald, Felsen und Bergen mit Schneegipfeln
+- Das **echte Muotathal** im Massstab 1:1: rund 4 × 4 km um das Dorf sind begehbar,
+  mit echtem Gelände, Strassen, Häusern, der Muota und Wald aus echten Geodaten
+- Die Berge ringsum (16 × 16 km) als vereinfachte Kulisse
 - Spielfigur: gehen, rennen, springen (z.B. auf die Heuballen beim Start)
 - Zwei Autos zum Einsteigen und Herumfahren, mit km/h-Anzeige
 - Runde Mini-Karte, Gebietsnamen, FPS-Anzeige
 - Senkt automatisch die Auflösung, wenn das Handy zu langsam ist
 
+## Kartendaten
+
+Die Dateien in `data/` werden automatisch erzeugt (`scripts/build-geodata.mjs`):
+GitHub lädt die Daten herunter, wenn sich das Skript ändert, oder per Hand unter
+**Actions → Geodaten aktualisieren → Run workflow**.
+
+- Höhenmodell: **swissALTI3D © swisstopo** (Open Government Data)
+- Strassen, Gebäude, Gewässer, Wald, Ortsnamen: **© OpenStreetMap-Mitwirkende**, Lizenz [ODbL](https://www.openstreetmap.org/copyright)
+- Berg-Kulisse: AWS Terrain Tiles (Tilezen; u.a. SRTM, EU-DEM)
+
+Den Ausschnitt (Mitte, Grösse) kann man oben im Skript ändern, z.B. um das Tal zu erweitern.
+
 ## Technik
 
 - [Three.js](https://threejs.org) (r170, liegt in `lib/`, keine Installation nötig)
 - Reines HTML + JavaScript, kein Build-Schritt
-- `src/` enthält den Code: `world.js` (Tal), `player.js`, `car.js`, `camera.js`, `input.js` (Touch), `minimap.js`
+- `src/` enthält den Code: `world.js` (Tal aus den Kartendaten, in Kacheln), `player.js`, `car.js`, `camera.js`, `input.js` (Touch), `minimap.js`
 
 Es werden **keine** Inhalte, Namen oder Grafiken aus anderen Spielen verwendet.

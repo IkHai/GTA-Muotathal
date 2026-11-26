@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-import { Builder, lowPolyMaterial } from './builder.js';
+import { Builder } from './builder.js';
 import { makeBlobShadow } from './shadow.js';
-import { HALF } from './terrain.js';
 
 /** Einfaches Arcade-Auto: Gas, Bremse/Rückwärts, Lenken mit dem Joystick. */
 export class Car {
@@ -24,16 +23,17 @@ export class Car {
     this.mesh.add(this.body);
 
     // Räder
-    const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.26, 8);
+    const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 14);
     wheelGeo.rotateZ(Math.PI / 2);
-    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x1b1b1b, flatShading: true });
-    const hubMat = new THREE.MeshLambertMaterial({ color: 0xb0b0b0 });
-    const hubGeo = new THREE.BoxGeometry(0.28, 0.16, 0.16);
+    const wheelMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+    const hubMat = new THREE.MeshPhongMaterial({ color: 0x9a9a9a, shininess: 60 });
+    const hubGeo = new THREE.CylinderGeometry(0.21, 0.21, 0.24, 8);
+    hubGeo.rotateZ(Math.PI / 2);
     this.wheels = [];
     this.frontPivots = [];
-    for (const [x, z, front] of [[-0.86, 1.32, true], [0.86, 1.32, true], [-0.86, -1.3, false], [0.86, -1.3, false]]) {
+    for (const [x, z, front] of [[-0.8, 1.38, true], [0.8, 1.38, true], [-0.8, -1.38, false], [0.8, -1.38, false]]) {
       const pivot = new THREE.Group();
-      pivot.position.set(x, 0.36, z);
+      pivot.position.set(x, 0.34, z);
       const w = new THREE.Mesh(wheelGeo, wheelMat);
       w.add(new THREE.Mesh(hubGeo, hubMat));
       pivot.add(w);
@@ -42,7 +42,7 @@ export class Car {
       if (front) this.frontPivots.push(pivot);
     }
     scene.add(this.mesh);
-    this.shadow = makeBlobShadow(2.6, 5);
+    this.shadow = makeBlobShadow(2.4, 5, 0.6);
     scene.add(this.shadow);
     this.placeOnGround();
   }
@@ -83,7 +83,7 @@ export class Car {
         if (r.hit) { blocked = true; break; }
       }
     }
-    if (Math.abs(nx) > HALF - 6 || Math.abs(nz) > HALF - 6) blocked = true;
+    if (Math.abs(nx) > this.world.half - 6 || Math.abs(nz) > this.world.half - 6) blocked = true;
 
     if (blocked) {
       if (Math.abs(s) > 6) this.bump = 0.25;
@@ -95,7 +95,7 @@ export class Car {
     this.bump = Math.max(0, this.bump - dt);
 
     // Räder drehen und lenken
-    for (const w of this.wheels) w.rotation.x += s / 0.36 * dt;
+    for (const w of this.wheels) w.rotation.x += s / 0.34 * dt;
     for (const p of this.frontPivots) p.rotation.y = -this.steer * 0.45;
     this.placeOnGround();
   }
@@ -135,22 +135,57 @@ function approach(v, target, step) {
   return v < target ? Math.min(target, v + step) : Math.max(target, v - step);
 }
 
-// Karosserie im Stil eines kantigen Kombis aus den 90ern
+// Karosserie: viertürige Limousine der 90er (eigenes Design)
+function frustum(bw, bl, tw, tl, h, tzOff = 0) {
+  // Kiste, oben schmaler/kürzer als unten (für Kabine, Motorhaube)
+  const B = [[-bw / 2, 0, -bl / 2], [bw / 2, 0, -bl / 2], [bw / 2, 0, bl / 2], [-bw / 2, 0, bl / 2]];
+  const T = [[-tw / 2, h, -tl / 2 + tzOff], [tw / 2, h, -tl / 2 + tzOff], [tw / 2, h, tl / 2 + tzOff], [-tw / 2, h, tl / 2 + tzOff]];
+  const q = (a, b, c, d) => [a, b, c, a, c, d];
+  const tris = [
+    ...q(T[0], T[3], T[2], T[1]), ...q(B[0], B[1], B[2], B[3]),
+    ...q(B[0], T[0], T[1], B[1]), ...q(B[1], T[1], T[2], B[2]), ...q(B[2], T[2], T[3], B[3]), ...q(B[3], T[3], T[0], B[0]),
+  ];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(tris.flat(), 3));
+  return g;
+}
+
 function buildBody(color) {
-  const b = new Builder();
-  const dark = 0x1d1f22, glass = 0x2a3a48, chrome = 0xc9c9c9;
-  b.box(0, 0.62, 0, 1.78, 0.5, 4.3, color);              // Unterteil
-  b.box(0, 1.08, -0.35, 1.66, 0.46, 2.4, color);          // Dach-Teil
-  b.box(0, 1.1, 0.87, 1.6, 0.4, 0.05, glass);             // Frontscheibe
-  b.box(0, 1.1, -1.56, 1.56, 0.38, 0.05, glass);          // Heckscheibe
+  const group = new THREE.Group();
+  const paint = new Builder(), trim = new Builder(), glass = new Builder(), lights = new Builder();
+  const dark = 0x1c1d1f, chrome = 0xa8a8a8;
+  // Unterteil mit leicht schrägen Seiten
+  paint.shape(frustum(1.76, 4.5, 1.8, 4.42, 0.42), 0, 0.36, 0, 1, 1, 1, color);
+  // Motorhaube und Kofferraum leicht abfallend
+  paint.shape(frustum(1.74, 1.3, 1.66, 1.22, 0.1), 0, 0.78, 1.55, 1, 1, 1, color);
+  paint.shape(frustum(1.74, 1.0, 1.66, 0.9, 0.12), 0, 0.78, -1.7, 1, 1, 1, color);
+  // Kabine: Fensterflächen dunkel, Dach in Wagenfarbe
+  glass.shape(frustum(1.66, 2.5, 1.36, 1.55, 0.5, -0.12), 0, 0.78, -0.2, 1, 1, 1, 0x1f262c);
+  paint.shape(frustum(1.38, 1.58, 1.34, 1.5, 0.05), 0, 1.27, -0.32, 1, 1, 1, color);
+  // Säulen
+  for (const s of [-1, 1]) paint.box(s * 0.75, 1.03, -0.2, 0.06, 0.5, 0.08, color);
+  // Stossstangen, Schweller, Grill
+  trim.box(0, 0.42, 2.24, 1.8, 0.2, 0.1, dark);
+  trim.box(0, 0.42, -2.24, 1.8, 0.2, 0.1, dark);
+  for (const s of [-1, 1]) trim.box(s * 0.9, 0.42, 0, 0.04, 0.12, 2.6, dark);
+  trim.box(0, 0.64, 2.22, 0.8, 0.14, 0.04, 0x2a2a2a);
+  trim.box(0, 0.72, 2.22, 0.82, 0.02, 0.05, chrome);
   for (const s of [-1, 1]) {
-    b.box(s * 0.84, 1.1, -0.35, 0.04, 0.36, 2.2, glass);  // Seitenfenster
-    b.box(s * 0.6, 0.68, 2.16, 0.38, 0.16, 0.04, 0xfff3c4); // Scheinwerfer
-    b.box(s * 0.62, 0.7, -2.16, 0.34, 0.14, 0.04, 0xc2271b); // Rücklichter
+    lights.box(s * 0.62, 0.66, 2.21, 0.36, 0.13, 0.04, 0xe8e2c8);   // Scheinwerfer
+    lights.box(s * 0.64, 0.68, -2.21, 0.36, 0.14, 0.04, 0x8a1610);  // Rücklichter
+    trim.box(s * 0.92, 1.0, 0.45, 0.08, 0.06, 0.14, dark);          // Spiegel
+    trim.box(s * 0.89, 0.62, 0.0, 0.02, 0.03, 0.18, chrome);       // Türgriffe
+    trim.box(s * 0.89, 0.62, -0.9, 0.02, 0.03, 0.18, chrome);
   }
-  b.box(0, 0.42, 2.18, 1.82, 0.14, 0.12, dark);           // Stossstange vorne
-  b.box(0, 0.42, -2.18, 1.82, 0.14, 0.12, dark);          // Stossstange hinten
-  b.box(0, 0.62, 2.17, 0.7, 0.14, 0.03, chrome);          // Kühlergrill
-  b.box(0, 0.33, 0, 1.6, 0.12, 3.9, dark);                // Unterboden
-  return b.build(lowPolyMaterial());
+  trim.box(0, 0.5, -2.27, 0.5, 0.12, 0.02, 0xd8d8d0);                // Nummernschild
+  const paintMat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 80, specular: 0x666666 });
+  const glassMat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 120, specular: 0xaabbcc });
+  const trimMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const lightMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+  for (const [b, m] of [[paint, paintMat], [glass, glassMat], [trim, trimMat], [lights, lightMat]]) {
+    const mesh = b.build(m);
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  return group;
 }

@@ -1,46 +1,54 @@
-import { HALF, roadX, riverX } from './terrain.js';
+// Kleine runde Karte oben links, gezeichnet aus den echten Kartendaten.
+// Oben = Blickrichtung der Kamera, "N" zeigt nach Norden.
 
-/** Kleine runde Karte oben links. Norden zeigt immer in Blickrichtung der Kamera. */
 export class Minimap {
   constructor(canvas, world) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.timer = 0;
-    // Karte einmal vorzeichnen (1 Pixel = 2 Meter)
-    const size = 320;
-    this.scale = size / (HALF * 2);
+    this.half = world.half;
+    const size = 800;                 // 1 Pixel = 5 m
+    this.scale = size / (world.half * 2);
     const map = document.createElement('canvas');
     map.width = map.height = size;
     const g = map.getContext('2d');
     const t = world.terrain;
     const img = g.createImageData(size, size);
+    const colors = [[104, 150, 70], [52, 92, 44], [130, 126, 118], [70, 130, 175], [150, 150, 140], [160, 155, 145]];
     for (let py = 0; py < size; py++) {
       for (let px = 0; px < size; px++) {
-        const x = px / this.scale - HALF, z = py / this.scale - HALF;
-        const h = t.heightAt(x, z);
-        let r = 96, gg = 140, b = 70;
-        if (h > 95) { r = 235; gg = 238; b = 240; }
-        else if (h > 30) { const k = Math.min(1, (h - 30) / 60); r = 96 + 40 * k; gg = 120 - 10 * k; b = 70 + 40 * k; }
-        else if (h > 6) { r = 80; gg = 115; b = 60; }
+        const x = px / this.scale - this.half, z = py / this.scale - this.half;
+        const c = colors[t.landAt(x, z)] || colors[0];
+        // Schummerung: Hang gegen Nordwesten heller
+        const s = (t.heightAt(x - 5, z - 5) - t.heightAt(x + 5, z + 5)) * 0.9;
         const i = (py * size + px) * 4;
-        img.data[i] = r; img.data[i + 1] = gg; img.data[i + 2] = b; img.data[i + 3] = 255;
+        img.data[i] = c[0] + s; img.data[i + 1] = c[1] + s; img.data[i + 2] = c[2] + s; img.data[i + 3] = 255;
       }
     }
     g.putImageData(img, 0, 0);
-    const line = (fn, width, color) => {
-      g.strokeStyle = color; g.lineWidth = width; g.beginPath();
-      for (let z = -HALF; z <= HALF; z += 4) {
-        const px = (fn(z) + HALF) * this.scale, py = (z + HALF) * this.scale;
-        if (z === -HALF) g.moveTo(px, py); else g.lineTo(px, py);
+    const toPx = (v) => (v + this.half) * this.scale;
+    const line = (p, w, color) => {
+      g.strokeStyle = color; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath();
+      for (let i = 0; i < p.length; i += 2) {
+        const x = toPx(p[i] / 10), y = toPx(p[i + 1] / 10);
+        if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
       }
       g.stroke();
     };
-    line(riverX, 5, '#3f86b8');
-    line(roadX, 3.5, '#e8e2cf');
-    g.fillStyle = '#c9a27a';
-    for (const h of world.houses) {
-      const s = h.church ? 6 : 4;
-      g.fillRect((h.x + HALF) * this.scale - s / 2, (h.z + HALF) * this.scale - s / 2, s, s);
+    for (const w of world.osm.water) line(w.p, Math.max(1, w.w * this.scale), '#3f86b8');
+    g.fillStyle = '#b9a184';
+    for (const b of world.osm.buildings) {
+      g.beginPath();
+      for (let i = 0; i < b.p.length; i += 2) {
+        const x = toPx(b.p[i] / 10), y = toPx(b.p[i + 1] / 10);
+        if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.closePath(); g.fill();
+    }
+    for (const r of world.osm.roads) {
+      const big = ['primary', 'secondary', 'tertiary', 'trunk'].includes(r.t);
+      if (['path', 'footway', 'steps', 'bridleway'].includes(r.t)) line(r.p, 0.8, 'rgba(240,230,200,.55)');
+      else line(r.p, big ? 2.6 : 1.6, big ? '#f1e3b0' : '#e6e1d2');
     }
     this.map = map;
   }
@@ -48,26 +56,24 @@ export class Minimap {
   update(dt, pos, heading, camYaw, cars) {
     this.timer -= dt;
     if (this.timer > 0) return;
-    this.timer = 0.1; // 10x pro Sekunde reicht
+    this.timer = 0.1;
     const ctx = this.ctx, w = this.canvas.width, c = w / 2;
-    const zoom = 1.6;
+    const zoom = 1.2;
     ctx.save();
     ctx.clearRect(0, 0, w, w);
     ctx.beginPath(); ctx.arc(c, c, c, 0, Math.PI * 2); ctx.clip();
-    ctx.fillStyle = '#56733f'; ctx.fillRect(0, 0, w, w);
+    ctx.fillStyle = '#3d5236'; ctx.fillRect(0, 0, w, w);
     ctx.translate(c, c);
-    // Karte so drehen, dass "vorne" (Blickrichtung) oben ist. Karten-x = Welt-x, Karten-y = Welt-z
     ctx.rotate(Math.PI + camYaw);
     ctx.scale(zoom, zoom);
-    ctx.drawImage(this.map, -(pos.x + HALF) * this.scale, -(pos.z + HALF) * this.scale);
+    ctx.drawImage(this.map, -(pos.x + this.half) * this.scale, -(pos.z + this.half) * this.scale);
     ctx.scale(this.scale, this.scale);
     for (const car of cars) {
       if (car.hasDriver) continue;
-      ctx.fillStyle = '#f2b632'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
-      ctx.fillRect(car.x - pos.x - 4, car.z - pos.z - 4, 8, 8);
+      ctx.fillStyle = '#f2b632';
+      ctx.fillRect(car.x - pos.x - 8, car.z - pos.z - 8, 16, 16);
     }
     ctx.restore();
-    // Spieler-Pfeil in der Mitte
     ctx.save();
     ctx.translate(c, c);
     ctx.rotate(camYaw - heading);
@@ -75,11 +81,11 @@ export class Minimap {
     ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(6, 7); ctx.lineTo(0, 3); ctx.lineTo(-6, 7); ctx.closePath();
     ctx.fill(); ctx.stroke();
     ctx.restore();
-    // "N" zeigt talaufwärts (+z)
+    // Norden = -z
     const r = c - 13;
+    const nx = c - Math.sin(camYaw) * r, ny = c + Math.cos(camYaw) * r;
     ctx.fillStyle = '#fff'; ctx.font = 'bold 15px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
-    ctx.strokeText('N', c + Math.sin(camYaw) * r, c - Math.cos(camYaw) * r);
-    ctx.fillText('N', c + Math.sin(camYaw) * r, c - Math.cos(camYaw) * r);
+    ctx.strokeText('N', nx, ny); ctx.fillText('N', nx, ny);
   }
 }
