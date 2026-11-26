@@ -298,4 +298,4 @@ startEl.addEventListener('pointerup', async () => {
 }, { once: true });
 
 // Für Tests im Browser
-window.__game = { player, cars, input, follow, world, story, get currentCar() { return currentCar; } };
+window.__game = { player, cars, input, follow, world, story, enterCar, exitCar, get currentCar() { return currentCar; } };

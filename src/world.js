@@ -5,7 +5,7 @@ import { materials } from './textures.js';
 import { Colliders } from './collision.js';
 import { makeRng } from './rng.js';
 import { buildRoadNet, drawRoadNet } from './roads.js';
-import { prepareRivers, drawRivers, installRiverGround } from './river.js';
+import { prepareRivers, drawRivers, installRiverGround, carveRiverBed } from './river.js';
 
 // Kachelgrösse für Gelände und Details. Nur Kacheln in der Nähe werden fein gezeichnet.
 const CHUNK = 500;
@@ -77,6 +77,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
   // Muota verbauen und Strassennetz zuerst: beide passen das Gelände an
   const rivers = prepareRivers(osm.water, terrain);
   const net = buildRoadNet(osm.roads, terrain);
+  carveRiverBed(rivers, terrain);
   installRiverGround(rivers, terrain);
   const colliders = new Colliders();
   const rng = makeRng(4417);
@@ -320,7 +321,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
 
   return {
     cows, terrain, colliders, houses, clouds, meta, osm, chunks, half, mainRoads,
-    spawn, carSpawns: carSpots, lamps,
+    spawn, carSpawns: carSpots, lamps, rivers,
     // Laternen in der Nähe eines Punktes
     lampsNear(x, z, r) {
       const out = [];

@@ -82,11 +82,12 @@ export class Car {
 
     // zu steil? Dann bleibt das Auto stehen
     const t = this.world.terrain;
-    const h1 = t.heightAt(nx, nz);
+    const ry = this.groundY;   // aktuelle Höhe: unter Brücken durchfahren
+    const h1 = t.heightAt(nx, nz, ry);
     const dist = Math.hypot(nx - this.x, nz - this.z);
     // Steigung über 2 m gemessen, damit kleine Kanten (Strassenrand, Brückenende) nicht blockieren
     const mvx = (nx - this.x) / (dist || 1), mvz = (nz - this.z) / (dist || 1);
-    const ga = t.heightAt(this.x - mvx * 0.5, this.z - mvz * 0.5), gb = t.heightAt(this.x + mvx * 1.5, this.z + mvz * 1.5);
+    const ga = t.heightAt(this.x - mvx * 0.5, this.z - mvz * 0.5, ry), gb = t.heightAt(this.x + mvx * 1.5, this.z + mvz * 1.5, ry);
     let blocked = dist > 1e-4 && (gb - ga) / 2 > 0.75;
 
     // Laternen: mit genug Tempo fallen sie um
@@ -194,11 +195,13 @@ export class Car {
     const t = this.world.terrain;
     const f = this.forward;
     const lx = Math.cos(this.heading), lz = -Math.sin(this.heading); // links
-    const hf = t.heightAt(this.x + f.x * 1.3, this.z + f.z * 1.3);
-    const hb = t.heightAt(this.x - f.x * 1.3, this.z - f.z * 1.3);
-    const hl = t.heightAt(this.x + lx * 0.85, this.z + lz * 0.85);
-    const hr = t.heightAt(this.x - lx * 0.85, this.z - lz * 0.85);
-    const y = Math.max((hf + hb) / 2, (hl + hr) / 2, t.heightAt(this.x, this.z));
+    const ry = this.groundY;
+    const hf = t.heightAt(this.x + f.x * 1.3, this.z + f.z * 1.3, ry);
+    const hb = t.heightAt(this.x - f.x * 1.3, this.z - f.z * 1.3, ry);
+    const hl = t.heightAt(this.x + lx * 0.85, this.z + lz * 0.85, ry);
+    const hr = t.heightAt(this.x - lx * 0.85, this.z - lz * 0.85, ry);
+    const y = Math.max((hf + hb) / 2, (hl + hr) / 2, t.heightAt(this.x, this.z, ry));
+    this.groundY = y;
     this.mesh.position.set(this.x, y, this.z);
     this.mesh.rotation.set(-Math.atan2(hf - hb, 2.6), this.heading, Math.atan2(hl - hr, 1.7), 'YXZ');
     // leichtes Wanken beim Beschleunigen und in Kurven

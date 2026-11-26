@@ -61,7 +61,7 @@ export class Player {
   setVisible(v) { this.mesh.visible = v; this.shadow.visible = v; }
 
   groundAt(x, z, feetY) {
-    const t = this.world.terrain.heightAt(x, z);
+    const t = this.world.terrain.heightAt(x, z, feetY);
     const s = this.world.colliders.supportAt(x, z, this.radius, feetY);
     return Math.max(t, s);
   }
@@ -93,8 +93,8 @@ export class Player {
     let nz = p.z + wz * this.speed * dt * (strength > 0.001 ? 1 : 0);
 
     // zu steile Hänge blockieren
-    const hOld = this.world.terrain.heightAt(p.x, p.z);
-    const hNew = this.world.terrain.heightAt(nx, nz);
+    const hOld = this.world.terrain.heightAt(p.x, p.z, p.y);
+    const hNew = this.world.terrain.heightAt(nx, nz, p.y);
     const dist = Math.hypot(nx - p.x, nz - p.z);
     if (dist > 1e-4 && (hNew - hOld) / dist > 1.1 && hNew > p.y + 0.2) { nx = p.x; nz = p.z; }
 
@@ -135,7 +135,7 @@ export class Player {
     this.hip.rotation.x = run * 0.12;
     this.mesh.position.copy(this.position);
     this.mesh.rotation.y = this.heading;
-    const g = this.world.terrain.heightAt(this.position.x, this.position.z);
+    const g = this.world.terrain.heightAt(this.position.x, this.position.z, this.position.y);
     const s = this.world.colliders.supportAt(this.position.x, this.position.z, this.radius, this.position.y + 0.01);
     this.shadow.position.set(this.position.x, Math.max(g, s) + 0.05, this.position.z);
   }

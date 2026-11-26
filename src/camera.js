@@ -53,7 +53,7 @@ export class FollowCamera {
     for (let i = 1; i <= steps; i++) {
       const d = this.dist * i / steps;
       const x = this.focus.x + dx * d, y = this.focus.y + dy * d, z = this.focus.z + dz * d;
-      if (this.world.terrain.heightAt(x, z) + 0.4 > y || this.world.colliders.insideBox(x, y, z)) {
+      if (this.world.terrain.heightAt(x, z, y) + 0.4 > y || this.world.colliders.insideBox(x, y, z)) {
         allowed = Math.max(0.8, this.dist * (i - 1) / steps);
         break;
       }
@@ -63,7 +63,7 @@ export class FollowCamera {
 
     const cam = this.camera;
     cam.position.set(this.focus.x + dx * this.curDist, this.focus.y + dy * this.curDist, this.focus.z + dz * this.curDist);
-    const minY = this.world.terrain.heightAt(cam.position.x, cam.position.z) + 0.35;
+    const minY = this.world.terrain.heightAt(cam.position.x, cam.position.z, cam.position.y) + 0.35;
     if (cam.position.y < minY) cam.position.y = minY;
     cam.lookAt(this.focus);
   }

@@ -98,7 +98,8 @@ export function buildRoadNet(roads, terrain) {
   }
 
   // Strassenhöhe an (x, z) oder NaN. extra = zusätzlicher Rand
-  function roadAt(x, z, extra = 0, skipBridges = false) {
+  // refY: aktuelle Höhe (Fuss/Rad). Wer deutlich unter einer Brücke ist, fährt darunter durch.
+  function roadAt(x, z, extra = 0, skipBridges = false, refY) {
     const l = grid.get(Math.floor(x / BUCKET) * 100003 + Math.floor(z / BUCKET));
     if (!l) return NaN;
     let best = null, bp = -1, bd = Infinity, bh = NaN;
@@ -110,9 +111,11 @@ export function buildRoadNet(roads, terrain) {
       const d = Math.sqrt(dx * dx + dz * dz) - s.hw;
       if (d > extra) continue;
       if (d > 0 && s.bridge) continue;               // neben Brücken keine Böschung
+      const h = s.h1 + (s.h2 - s.h1) * t;
+      if (s.bridge && refY !== undefined && h - refY > 2.2) continue;   // unter der Brücke
       // auf der Fahrbahn zählt die Priorität, daneben die nächste Strasse
       const p = d <= 0 ? 10 + s.prio : 0;
-      if (p > bp || (p === bp && d < bd)) { best = s; bp = p; bd = d; bh = s.h1 + (s.h2 - s.h1) * t; }
+      if (p > bp || (p === bp && d < bd)) { best = s; bp = p; bd = d; bh = h; }
     }
     lastD = bd;
     return best ? bh : NaN;
@@ -171,8 +174,8 @@ export function buildRoadNet(roads, terrain) {
   terrain.groundAt = ground;
   terrain.roadAt = roadAt;
   terrain.roadWays = ways;
-  terrain.heightAt = (x, z) => {
-    const r = roadAt(x, z, 5, false);
+  terrain.heightAt = (x, z, refY) => {
+    const r = roadAt(x, z, 5, false, refY);
     const g = ground(x, z);
     if (r !== r) return g;
     if (lastD <= 0) return r;
@@ -285,7 +288,7 @@ function bridgeSegment(b, L0, L1, R0, R1, nx, nz, terrain, i, colliders, ax, az,
     quad2(b, RAIL, [pp[0] - 0.04, pp[1] + 0.35, pp[2] - 0.04], [pp[0] + 0.04, pp[1] + 0.35, pp[2] + 0.04], [pp[0] + 0.04, pp[1] + 1.05, pp[2] + 0.04], [pp[0] - 0.04, pp[1] + 1.05, pp[2] - 0.04]);
     // Kollision: Geländer hält Figur und Autos auf der Brücke
     const cx = (P[0] + Q[0]) / 2, cz = (P[2] + Q[2]) / 2, y = (P[1] + Q[1]) / 2;
-    colliders.addOrientedBox(cx, cz, (bx - ax) / len, (bz - az) / len, len / 2 + 0.3, 0.2, y - 1.2, y + 1.1);
+    colliders.addOrientedBox(cx, cz, (bx - ax) / len, (bz - az) / len, len / 2 + 0.3, 0.2, y - 0.8, y + 1.1);
   }
   // Pfeiler alle ~12 m, wenn die Brücke hoch genug ist
   if (i % 6 === 3) {
