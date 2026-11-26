@@ -45,6 +45,7 @@ export class Car {
     this.shadow = makeBlobShadow(2.4, 5, 0.6);
     scene.add(this.shadow);
     this.placeOnGround();
+    (Car.all ||= []).push(this);
   }
 
   get forward() { return { x: Math.sin(this.heading), z: Math.cos(this.heading) }; }
@@ -81,6 +82,13 @@ export class Car {
         const cx = nx + f.x * off, cz = nz + f.z * off;
         const r = this.world.colliders.resolve(cx, cz, 1.0, h1 + 0.2, 0.1, 1.4);
         if (r.hit) { blocked = true; break; }
+      }
+    }
+    // andere Autos
+    if (!blocked && Car.all) {
+      for (const o of Car.all) {
+        if (o === this) continue;
+        if (Math.hypot(o.x - nx, o.z - nz) < 3.4 && Math.hypot(o.x - nx, o.z - nz) < Math.hypot(o.x - this.x, o.z - this.z)) { blocked = true; break; }
       }
     }
     if (Math.abs(nx) > this.world.half - 6 || Math.abs(nz) > this.world.half - 6) blocked = true;

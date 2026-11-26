@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Terrain, LAND } from './terrain.js';
-import { Builder, ROOF, planarUVs } from './builder.js';
+import { Builder, ROOF, planarUVs, UNIT_BOX as UNIT_BOX_REF } from './builder.js';
 import { materials } from './textures.js';
 import { Colliders } from './collision.js';
 import { makeRng } from './rng.js';
@@ -98,6 +98,12 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
     if (info) houses.push(info);
   }
 
+  const buildingIndex = new Map();
+  for (const h of houses) {
+    const k = Math.floor(h.x / 50) + ',' + Math.floor(h.z / 50);
+    buildingIndex.set(k, (buildingIndex.get(k) || 0) + 1);
+  }
+
   // ---------- Wald ----------
   const res = terrain.res;
   for (let j = 0; j < terrain.n; j++) {
@@ -121,6 +127,27 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
     const s = rng.range(0.9, 1.5);
     chunkAt(x, z).trees.push(x, y, z, s, rng() * 6.28);
     colliders.addCircle(x, z, 0.4 * s);
+  }
+
+  // ---------- Strassenlaternen an den Hauptstrassen im Dorf ----------
+  for (const r of mainRoads) {
+    const p = resample(r.pts, 35);
+    for (let i = 1; i < p.length - 1; i++) {
+      const [x, z] = p[i], [nx2, nz2] = p[i + 1];
+      const near = osm.buildings.length && houseNear(x, z, buildingIndex, 45);
+      if (!near) continue;
+      const dx = nx2 - x, dz = nz2 - z, l = Math.hypot(dx, dz) || 1;
+      const side = (i % 2 ? 1 : -1) * (r.w / 2 + 0.9);
+      const lx = x - dz / l * side, lz = z + dx / l * side;
+      const g = terrain.heightAt(lx, lz);
+      const D = chunkAt(lx, lz).detail.plain;
+      D.box(lx, g + 3, lz, 0.14, 6, 0.14, 0x4a4d50);
+      const ax = dz / l * Math.sign(side) * 0.6, az = -dx / l * Math.sign(side) * 0.6;
+      D.box(lx + ax, g + 6, lz + az, 0.1, 0.1, 0.1, 0x4a4d50);
+      D.box(lx + ax * 1.6, g + 5.95, lz + az * 1.6, 0.5, 0.12, 0.5, 0x3a3c3e);
+      D.box(lx + ax * 1.6, g + 5.86, lz + az * 1.6, 0.36, 0.04, 0.36, 0xf2ead0);
+      colliders.addCircle(lx, lz, 0.15);
+    }
   }
 
   const treeNear = makeTreeGeometry(true), treeFar = makeTreeGeometry(false);
@@ -174,9 +201,41 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
     if (carSpots.length >= 4) break;
     const d = Math.hypot(p.x - s0.x, p.z - s0.z);
     if (carSpots.length === 0 ? d < 10 || d > 30 : carSpots.every((c) => Math.hypot(c.x - p.x, c.z - p.z) > 250) && d < 1500) {
-      const sp = side(p, -(p.w / 2 - 1.4));
+      const sp = side(p, -(p.w / 2 + 1.6));
       carSpots.push({ x: sp.x, z: sp.z, heading: p.dir, color: colors[carSpots.length] });
     }
+  }
+
+  // ---------- Kühe auf den Weiden ----------
+  const cows = [];
+  for (let herd = 0, tries = 0; herd < 9 && tries < 400; tries++) {
+    const hx = rng.range(-half + 60, half - 60), hz = rng.range(-half + 60, half - 60);
+    if (!cowSpot(hx, hz)) continue;
+    herd++;
+    const n = 3 + Math.floor(rng() * 5);
+    for (let k = 0; k < n; k++) {
+      const x = hx + rng.range(-25, 25), z = hz + rng.range(-25, 25);
+      if (!cowSpot(x, z)) continue;
+      cows.push([x, terrain.heightAt(x, z), z, rng() * 6.28, 0.9 + rng() * 0.2]);
+      colliders.addCircle(x, z, 1.0);
+    }
+  }
+  function cowSpot(x, z) {
+    if (terrain.landAt(x, z) !== LAND.MEADOW) return false;
+    const y = terrain.heightAt(x, z);
+    if (Math.abs(terrain.heightAt(x + 4, z) - y) > 2 || Math.abs(terrain.heightAt(x, z + 4) - y) > 2) return false;
+    if (nearRoad(x, z, mainRoads, 15)) return false;
+    return !colliders.resolve(x, z, 4, y).hit;
+  }
+  if (cows.length) {
+    const cowMesh = new THREE.InstancedMesh(makeCowGeometry(), M.plain, cows.length);
+    cows.forEach(([x, y, z, r, s], i) => {
+      m4.compose(pv.set(x, y, z), q.setFromAxisAngle(up, r), sc.set(s, s, s));
+      cowMesh.setMatrixAt(i, m4);
+    });
+    cowMesh.castShadow = true;
+    cowMesh.frustumCulled = false;
+    scene.add(cowMesh);
   }
 
   // ---------- Berg-Kulisse rundherum ----------
@@ -187,7 +246,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
   scene.add(clouds);
 
   return {
-    terrain, colliders, houses, clouds, meta, osm, chunks, half,
+    cows, terrain, colliders, houses, clouds, meta, osm, chunks, half, mainRoads,
     spawn, carSpawns: carSpots,
     places: osm.places.filter((p) => ['village', 'hamlet', 'locality', 'isolated_dwelling', 'neighbourhood', 'town'].includes(p.type)),
     updateVisibility(cam) {
@@ -203,6 +262,13 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
       }
     },
   };
+}
+
+function houseNear(x, z, index, d) {
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+    if ((index.get((Math.floor(x / 50) + i) + ',' + (Math.floor(z / 50) + j)) || 0) >= 2) return true;
+  }
+  return false;
 }
 
 const toPts = (p) => { const out = []; for (let i = 0; i < p.length; i += 2) out.push([p[i] / 10, p[i + 1] / 10]); return out; };
@@ -507,6 +573,28 @@ function quadWall(b, x1, z1, x2, z2, y0, y1, color) {
   const A = [x1, y0, z1], B = [x2, y0, z2], Cc = [x2, y1, z2], D = [x1, y1, z1];
   // Aussenseite: Grundriss gegen den Uhrzeigersinn (von oben, x rechts, z unten)
   for (const v of [A, Cc, B, A, D, Cc]) { b.pos.push(...v); b.col.push(color.r, color.g, color.b); }
+}
+
+// Braunvieh, wie es im Muotathal typisch ist (Kopf unten beim Grasen)
+function makeCowGeometry() {
+  const b = new Builder();
+  const body = 0x6e5e50, dark = 0x3e342c, light = 0xb8ab98;
+  b.box(0, 1.05, 0, 0.75, 0.75, 1.7, body);
+  b.box(0, 1.0, 0.95, 0.6, 0.6, 0.3, body);                 // Brust
+  b.box(0, 0.55, 1.25, 0.32, 0.36, 0.5, body, 0);           // Kopf (gesenkt)
+  b.shape(UNIT_BOX_REF, 0, 0.62, 1.2, 0.34, 0.34, 0.55, body, 0, 0.8);
+  b.box(0, 0.38, 1.47, 0.3, 0.2, 0.14, light);              // Maul
+  for (const s of [-1, 1]) {
+    b.box(s * 0.22, 0.78, 1.05, 0.22, 0.05, 0.08, light);   // Hörner
+    b.box(s * 0.25, 0.35, 0.6, 0.15, 0.7, 0.15, body);      // Beine vorne
+    b.box(s * 0.25, 0.35, -0.6, 0.15, 0.7, 0.15, body);     // Beine hinten
+    b.box(s * 0.25, 0.04, 0.6, 0.16, 0.08, 0.17, dark);     // Klauen
+    b.box(s * 0.25, 0.04, -0.6, 0.16, 0.08, 0.17, dark);
+  }
+  b.box(0, 0.7, -0.4, 0.3, 0.12, 0.3, 0xc8a8a0);            // Euter
+  b.box(0, 0.9, -0.9, 0.06, 0.6, 0.06, dark);               // Schwanz
+  b.box(0, 0.72, 0.95, 0.16, 0.2, 0.06, 0x8a7a40);          // Glocke
+  return b.build(null, 0.5).geometry;
 }
 
 function makeTreeGeometry(detailed) {

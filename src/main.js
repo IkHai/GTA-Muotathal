@@ -5,6 +5,7 @@ import { Player } from './player.js';
 import { Car } from './car.js';
 import { FollowCamera } from './camera.js';
 import { Minimap } from './minimap.js';
+import { Traffic } from './traffic.js';
 
 import { setRenderer } from './textures.js';
 
@@ -87,6 +88,8 @@ document.getElementById('credits').textContent = 'Karte: ' + [world.meta.sources
 const input = new Input();
 const player = new Player(scene, world);
 const cars = world.carSpawns.map((s) => new Car(scene, world, s));
+const traffic = new Traffic(scene, world, 6);
+cars.push(...traffic.cars);
 const follow = new FollowCamera(camera, world);
 follow.yaw = 0;
 follow.focus.set(player.position.x, player.position.y + 1.5, player.position.z);
@@ -115,6 +118,7 @@ function nearestCar() {
 }
 
 function enterCar(car) {
+  if (car.traffic) traffic.release(car);
   currentCar = car;
   car.hasDriver = true;
   player.setVisible(false);
@@ -175,7 +179,8 @@ function frame(now) {
   if (currentCar) input.setEnterAvailable(Math.abs(currentCar.speed) <= 12);
 
   if (!currentCar) player.update(dt, input, follow.yaw);
-  for (const c of cars) c.update(dt, input);
+  for (const c of cars) if (!c.traffic) c.update(dt, input);
+  traffic.update(dt, player, currentCar, cars);
   if (currentCar) { player.position.set(currentCar.x, currentCar.mesh.position.y, currentCar.z); }
 
   const target = currentCar ? currentCar.mesh.position : player.position;
