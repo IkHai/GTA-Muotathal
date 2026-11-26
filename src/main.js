@@ -6,7 +6,8 @@ import { Car } from './car.js';
 import { FollowCamera } from './camera.js';
 import { Minimap, BigMap } from './minimap.js';
 import { Traffic } from './traffic.js';
-import { Story, loadSave, clearSave } from './story.js';
+import { Story, loadSave, setSaveKey } from './story.js';
+import { buildMenu, saveKeyFor } from './profiles.js';
 import { Interiors } from './interiors.js';
 
 import { setRenderer } from './textures.js';
@@ -290,18 +291,14 @@ follow.update(0.016, { x: 0, y: 0 }, player.position, 'foot', 0, 0);
 world.updateVisibility(camera.position);
 requestAnimationFrame(frame);
 
-// Spielstand vorhanden: „Neues Spiel“ anbieten
-const newGameEl = document.getElementById('new-game');
-if (loadSave()) {
-  newGameEl.style.display = 'block';
-  newGameEl.addEventListener('pointerup', () => { clearSave(); newGameEl.textContent = 'Spielstand gelöscht'; });
-  newGameEl.addEventListener('pointerdown', (e) => e.stopPropagation());
-}
-
+// Startmenü: Konto wählen oder neu anlegen, dann geht's los
 let started = false;
-startEl.addEventListener('pointerup', async (e) => {
-  if (e.target === newGameEl || started) return;
+let playerName = '';
+async function startGame(name) {
+  if (started) return;
   started = true;
+  playerName = name;
+  setSaveKey(saveKeyFor(name));
   startEl.style.display = 'none';
   running = true;
   last = performance.now();
@@ -316,7 +313,8 @@ startEl.addEventListener('pointerup', async (e) => {
     if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
   } catch (_) { /* nicht jedes Handy erlaubt das */ }
   setTimeout(resize, 300);
-});
+}
+buildMenu(document.getElementById('profiles'), startGame);
 
 // Für Tests im Browser
-window.__game = { player, cars, input, follow, world, story, interiors, enterCar, exitCar, get currentCar() { return currentCar; } };
+window.__game = { startGame, get playerName() { return playerName; }, player, cars, input, follow, world, story, interiors, enterCar, exitCar, get currentCar() { return currentCar; } };

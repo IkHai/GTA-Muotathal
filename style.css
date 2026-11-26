@@ -84,8 +84,7 @@ html, body {
 #start .title span { color: #f2b632; }
 #start .sub { font: 600 16px Arial, sans-serif; margin-top: 4px; opacity: .9; }
 #start .tap { margin-top: 26px; font-size: 22px; animation: blink 1.2s infinite; }
-#start .help { margin-top: 22px; font: 13px Arial, sans-serif; opacity: .8; line-height: 1.6; padding: 0 16px; }
-#start.loading .tap { display: none; }
+#start .help { margin-top: 8px; font: 13px Arial, sans-serif; opacity: .8; line-height: 1.6; padding: 0 16px; }
 #loading { display: none; margin-top: 26px; font-size: 18px; }
 #start.loading #loading { display: block; }
 @keyframes blink { 50% { opacity: .35; } }
@@ -144,7 +143,24 @@ body.cutscene #skip { display: block; }
 #dialog-name.bruno { color: #ff5a6a; }
 #dialog-name.lars { color: #8fd0ff; }
 #dialog-next { position: absolute; right: 12px; bottom: 5px; font-size: 12px; opacity: .7; }
-#new-game {
-  display: none; position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
-  padding: 6px 14px; border: 1px solid rgba(255,255,255,.6); border-radius: 16px; font: 600 14px Arial, sans-serif;
+/* ---------- Startmenü mit Konten ---------- */
+#profiles { margin-top: 14px; width: min(420px, 92vw); font: 15px Arial, sans-serif; }
+#start.loading #profiles { display: none; }
+.pm-head { font-weight: 700; margin-bottom: 6px; opacity: .9; }
+.pm-list { max-height: 30vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.pm-row { display: flex; gap: 6px; }
+.pm-row button, .pm-new button, .pm-new input { font: inherit; border-radius: 10px; border: 1px solid rgba(255,255,255,.35); }
+.pm-play { flex: 1; display: flex; justify-content: space-between; align-items: center; padding: 9px 14px; background: rgba(242,182,50,.9); color: #1a1208; border-color: #f2b632; }
+.pm-play small { font-size: 12px; opacity: .8; }
+.pm-del { padding: 0 12px; background: rgba(0,0,0,.45); color: #ddd; }
+.pm-del.sure { background: #b3262e; color: #fff; border-color: #ff6a6a; }
+.pm-new { display: flex; gap: 6px; margin-top: 10px; }
+.pm-new input { flex: 1; min-width: 0; padding: 9px 12px; background: rgba(255,255,255,.92); color: #111; }
+.pm-new button { padding: 9px 16px; background: #2f6a3a; color: #fff; border-color: #5ab36a; font-weight: 700; }
+.pm-msg { min-height: 18px; margin-top: 4px; color: #ffb0a0; font-size: 13px; }
+@media (max-height: 480px) {
+  #start .title { font-size: min(11vw, 58px); }
+  #start .sub { font-size: 13px; }
+  #start .help { display: none; }
+  .pm-list { max-height: 26vh; }
 }

@@ -19,7 +19,7 @@
     const css = document.createElement('link');
     css.rel = 'stylesheet'; css.href = 'style.css?v=' + v;
     document.head.appendChild(css);
-    const files = ['main', 'world', 'input', 'player', 'car', 'camera', 'minimap', 'terrain', 'builder', 'collision', 'rng', 'shadow', 'textures', 'traffic', 'roads', 'river', 'story', 'landmarks', 'handmade', 'interiors'];
+    const files = ['main', 'world', 'input', 'player', 'car', 'camera', 'minimap', 'terrain', 'builder', 'collision', 'rng', 'shadow', 'textures', 'traffic', 'roads', 'river', 'story', 'landmarks', 'handmade', 'interiors', 'profiles'];
     const imports = { three: './lib/three.module.min.js?v=r170' };
     for (const f of files) imports[new URL('src/' + f + '.js', location.href).href] = './src/' + f + '.js?v=' + v;
     const map = document.createElement('script');
@@ -68,14 +68,13 @@
 <div id="start">
   <div class="title">MUOTATHAL <span>1</span></div>
   <div class="sub">Ein Open-World-Spiel im Muotathal</div>
-  <div class="tap">Tippen zum Starten</div>
+  <div id="profiles"></div>
   <div class="help">
     Links: Joystick zum Laufen und Lenken &middot; Rechts: wischen für die Kamera<br>
     Am PC: WASD, Leertaste, E und Maus ziehen
   </div>
   <div id="loading">Lade Tal …</div>
   <div id="version"></div>
-  <div id="new-game">Neues Spiel</div>
   <div id="credits-start">Karte: Höhenmodell und Luftbild © swisstopo · Strassen, Häuser, Gewässer © OpenStreetMap-Mitwirkende (ODbL)</div>
 </div>
 
