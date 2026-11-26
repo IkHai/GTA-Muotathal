@@ -238,6 +238,9 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
     scene.add(cowMesh);
   }
 
+  // ---------- Kartenrand sichtbar machen ----------
+  scene.add(buildBorder(terrain, half - 5));
+
   // ---------- Berg-Kulisse rundherum ----------
   if (backdrop) scene.add(buildBackdrop(meta.backdrop, backdrop, terrain, M.plain));
 
@@ -671,4 +674,46 @@ function buildClouds(rng, half, y0) {
     }
   }
   return b.build(new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, transparent: true, opacity: 0.9 }));
+}
+
+// Leuchtender, halb durchsichtiger Vorhang mit Streifen am Rand der spielbaren Karte
+function buildBorder(terrain, e) {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 128;
+  const g = c.getContext('2d');
+  for (let y = 0; y < 128; y++) {
+    const a = Math.pow(1 - y / 128, 1.6);           // unten kräftig, oben ausgeblendet
+    for (let x = 0; x < 64; x++) {
+      const stripe = ((x + y) >> 4) & 1;
+      g.fillStyle = stripe ? `rgba(255,190,60,${0.55 * a})` : `rgba(230,70,40,${0.45 * a})`;
+      g.fillRect(x, 127 - y, 1, 1);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  const H = 14, step = 8;
+  const pos = [], uv = [];
+  const corners = [[-e, -e], [e, -e], [e, e], [-e, e], [-e, -e]];
+  let u = 0;
+  for (let k = 0; k < 4; k++) {
+    const [x0, z0] = corners[k], [x1, z1] = corners[k + 1];
+    const n = Math.ceil(2 * e / step);
+    for (let i = 0; i < n; i++) {
+      const ax = x0 + (x1 - x0) * i / n, az = z0 + (z1 - z0) * i / n;
+      const bx = x0 + (x1 - x0) * (i + 1) / n, bz = z0 + (z1 - z0) * (i + 1) / n;
+      const ay = terrain.heightAt(ax, az) - 1, by = terrain.heightAt(bx, bz) - 1;
+      const u0 = u, u1 = u + step / 8; u = u1;
+      pos.push(ax, ay, az, bx, by, bz, bx, by + H, bz, ax, ay, az, bx, by + H, bz, ax, ay + H, az);
+      uv.push(u0, 0, u1, 0, u1, 1, u0, 0, u1, 1, u0, 1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 2;
+  return mesh;
 }

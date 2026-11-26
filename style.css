@@ -43,7 +43,22 @@ html, body {
 #minimap {
   position: absolute; left: calc(14px + env(safe-area-inset-left)); top: 14px; width: 110px; height: 110px;
   border-radius: 50%; border: 3px solid #111; background: #6a8f4e; box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  pointer-events: auto; cursor: pointer;
 }
+#map-hint { position: absolute; left: calc(14px + env(safe-area-inset-left)); top: 126px; width: 116px; text-align: center; font: bold 11px Arial, sans-serif; text-shadow: 0 1px 2px #000; opacity: .85; }
+#version { position: absolute; top: 10px; right: 14px; font: 12px Arial, sans-serif; opacity: .75; }
+#bigmap { position: fixed; inset: 0; z-index: 50; display: none; background: #1d2419; touch-action: none; }
+#bigmap.open { display: block; }
+#bigmap-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+#bigmap-close, #bigmap-zoom div {
+  position: absolute; width: 52px; height: 52px; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff;
+  font: bold 26px Arial, sans-serif; display: flex; align-items: center; justify-content: center; border: 2px solid rgba(255,255,255,.5);
+}
+#bigmap-close { top: 14px; right: calc(16px + env(safe-area-inset-right)); }
+#bigmap-zoom { position: absolute; right: calc(16px + env(safe-area-inset-right)); bottom: 20px; width: 52px; height: 120px; }
+#bigmap-zoom div[data-z="1"] { top: 0; }
+#bigmap-zoom div[data-z="-1"] { bottom: 0; }
+#bigmap-help { position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; color: #fff; font: 12px Arial, sans-serif; opacity: .7; pointer-events: none; }
 #fps { position: absolute; left: calc(132px + env(safe-area-inset-left)); top: 16px; font: 12px monospace; opacity: .8; text-shadow: 0 1px 2px #000; }
 #speed {
   position: absolute; right: calc(20px + env(safe-area-inset-right)); top: 14px;

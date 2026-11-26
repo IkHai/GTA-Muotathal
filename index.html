@@ -14,6 +14,8 @@
     let v = 'dev';
     try { v = (await (await fetch('version.json', { cache: 'no-store' })).json()).v; } catch (e) {}
     window.__VERSION = v;
+    const showV = () => { const el = document.getElementById('version'); if (el) el.textContent = 'Version ' + v; };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', showV); else showV();
     const css = document.createElement('link');
     css.rel = 'stylesheet'; css.href = 'style.css?v=' + v;
     document.head.appendChild(css);
@@ -47,6 +49,7 @@
 <!-- Anzeigen -->
 <div id="hud">
   <canvas id="minimap" width="140" height="140"></canvas>
+  <div id="map-hint">Karte</div>
   <div id="fps">-- FPS</div>
   <div id="speed"></div>
   <div id="toast"></div>
@@ -63,7 +66,15 @@
     Am PC: WASD, Leertaste, E und Maus ziehen
   </div>
   <div id="loading">Lade Tal …</div>
+  <div id="version"></div>
   <div id="credits-start">Karte: Höhenmodell © swisstopo · Strassen, Häuser, Gewässer © OpenStreetMap-Mitwirkende (ODbL)</div>
+</div>
+
+<div id="bigmap">
+  <canvas id="bigmap-canvas"></canvas>
+  <div id="bigmap-close">✕</div>
+  <div id="bigmap-zoom"><div data-z="1">+</div><div data-z="-1">−</div></div>
+  <div id="bigmap-help">Ziehen zum Verschieben</div>
 </div>
 
 <div id="rotate">

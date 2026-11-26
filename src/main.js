@@ -4,7 +4,7 @@ import { Input } from './input.js';
 import { Player } from './player.js';
 import { Car } from './car.js';
 import { FollowCamera } from './camera.js';
-import { Minimap } from './minimap.js';
+import { Minimap, BigMap } from './minimap.js';
 import { Traffic } from './traffic.js';
 
 import { setRenderer } from './textures.js';
@@ -94,6 +94,7 @@ const follow = new FollowCamera(camera, world);
 follow.yaw = 0;
 follow.focus.set(player.position.x, player.position.y + 1.5, player.position.z);
 const minimap = new Minimap(document.getElementById('minimap'), world);
+const bigMap = new BigMap(minimap, world);
 
 let currentCar = null;
 input.setDriving(false);
@@ -141,6 +142,7 @@ function exitCar() {
 
 // Gebiet-Anzeige: nächster Ortsname aus OpenStreetMap
 let lastArea = '';
+let nearEdge = false;
 function areaName() {
   const p = player.position;
   let best = 'Muotathal', bestD = Infinity;
@@ -199,9 +201,14 @@ function frame(now) {
 
   const area = areaName();
   if (area !== lastArea) { lastArea = area; toast(area); }
+  // Kartenrand: Hinweis, wenn man nahe dran ist
+  const edge = world.half - Math.max(Math.abs(player.position.x), Math.abs(player.position.z));
+  if (edge < 25 && !nearEdge) { nearEdge = true; toast('Hier endet die Karte', 3); }
+  else if (edge > 60) nearEdge = false;
   if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) toastEl.classList.remove('show'); }
 
   minimap.update(dt, player.position, currentCar ? currentCar.heading : player.heading, follow.yaw, cars);
+  bigMap.update(player.position, currentCar ? currentCar.heading : player.heading, cars);
 
   renderer.render(scene, camera);
 
