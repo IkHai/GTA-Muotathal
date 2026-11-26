@@ -8,6 +8,7 @@ import { buildRoadNet, drawRoadNet } from './roads.js';
 import { prepareRivers, drawRivers, installRiverGround, carveRiverBed } from './river.js';
 import { findLandmark, decorateLandmark } from './landmarks.js';
 import { buildClub, buildBlock } from './handmade.js';
+import { buildHaus, buildShop, buildImbiss } from './shops.js';
 
 // Kachelgrösse für Gelände und Details. Nur Kacheln in der Nähe werden fein gezeichnet.
 const CHUNK = 500;
@@ -150,7 +151,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
       let area = 0;
       for (let i = 0; i < pts.length; i++) { const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % pts.length]; area += x1 * z2 - x2 * z1; }
       if (area < 0) pts = pts.reverse();
-      const r = (lm.custom === 'club' ? buildClub : buildBlock)(pts, { terrain, chunkAt, colliders });
+      const r = ({ club: buildClub, block: buildBlock, haus: buildHaus, shop: buildShop, imbiss: buildImbiss })[lm.custom](pts, { terrain, chunkAt, colliders });
       houses.push(r.info);
       landmarks[lm.id] = r.result;
       continue;

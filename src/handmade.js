@@ -7,7 +7,7 @@ import { Builder } from './builder.js';
 
 // ---------- Texturen ----------
 const cache = {};
-function canvasTex(key, w, h, draw, repeat = false) {
+export function canvasTex(key, w, h, draw, repeat = false) {
   if (cache[key]) return cache[key];
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   draw(c.getContext('2d'), w, h);
@@ -18,7 +18,7 @@ function canvasTex(key, w, h, draw, repeat = false) {
   return (cache[key] = t);
 }
 
-function rnd(seed) {
+export function rnd(seed) {
   let a = seed | 0;
   return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
@@ -73,7 +73,7 @@ export function plasterTex(base, key) {
   }, true);
 }
 
-function roofTex() {
+export function roofTex() {
   return canvasTex('rooftiles', 256, 256, (g, w, h) => {
     const r = rnd(99);
     g.fillStyle = '#3e2a22'; g.fillRect(0, 0, w, h);
@@ -135,7 +135,7 @@ export function plainTex(text, bg, fg) {
 // ---------- Hilfen ----------
 // Rechteck (aus OSM) mit Vorderseite zur Strasse. Lokales System: x entlang der Front,
 // z von der Front ins Haus hinein, y nach oben ab gMin.
-function frameFromFootprint(pts, terrain) {
+export function frameFromFootprint(pts, terrain) {
   let cx = 0, cz = 0;
   for (const [x, z] of pts) { cx += x; cz += z; }
   cx /= pts.length; cz /= pts.length;
@@ -194,11 +194,11 @@ function frameFromFootprint(pts, terrain) {
 }
 
 // Fläche mit Textur. Punkte lokal (x, y, z), Reihenfolge gegen den Uhrzeiger von aussen
-function quad(pos, uv, a, b, c, d, uvs) {
+export function quad(pos, uv, a, b, c, d, uvs) {
   pos.push(...a, ...b, ...c, ...a, ...c, ...d);
   uv.push(...uvs[0], ...uvs[1], ...uvs[2], ...uvs[0], ...uvs[2], ...uvs[3]);
 }
-function texMesh(pos, uv, mat) {
+export function texMesh(pos, uv, mat) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
@@ -209,7 +209,7 @@ function texMesh(pos, uv, mat) {
 }
 
 // Dachflächen: Oberseite einseitig (sonst wirft sie Schatten auf sich selbst), Unterseite dunkel
-function roofMeshes(group, rp, ru, color, tex) {
+export function roofMeshes(group, rp, ru, color, tex) {
   const top = texMesh(rp, ru, new THREE.MeshLambertMaterial({ map: tex === undefined ? roofTex() : tex, color }));
   top.receiveShadow = false;
   group.add(top);
@@ -222,7 +222,7 @@ function roofMeshes(group, rp, ru, color, tex) {
 }
 
 // Kasten-Wände (ohne Dach) als Textur-Flächen; s = Meter pro Texturkachel
-function boxWalls(pos, uv, W, D, y0, y1, s) {
+export function boxWalls(pos, uv, W, D, y0, y1, s) {
   const hw = W / 2;
   const P = [[-hw, 0], [hw, 0], [hw, D], [-hw, D]];   // Front, rechts, hinten, links (von oben im Uhrzeiger)
   let u = 0;
@@ -236,7 +236,7 @@ function boxWalls(pos, uv, W, D, y0, y1, s) {
 }
 
 // Fenster an einer Seite. side: 'f' vorne, 'b' hinten, 'l' links, 'r' rechts; t = Position entlang der Seite
-function windowAt(B, side, t, y, W, D, opt = {}) {
+export function windowAt(B, side, t, y, W, D, opt = {}) {
   const w = opt.w ?? 1.15, h = opt.h ?? 1.45;
   const hw = W / 2;
   let x, z, nx, nz, ry;
@@ -374,7 +374,7 @@ function groundLocal(F, terrain, x, z, hx = 0.4, hz = 0.4) {
   return Math.min(0, g);
 }
 
-function frontSteps(B, walk, F, terrain, x, topY, width, zStart) {
+export function frontSteps(B, walk, F, terrain, x, topY, width, zStart) {
   const [gx, gz] = F.toWorld(x, zStart - 1.5);
   const g = terrain.heightAt(gx, gz) - F.gMin;
   if (topY - g < 0.1) return zStart;
