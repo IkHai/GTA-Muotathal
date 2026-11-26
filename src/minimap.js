@@ -74,6 +74,17 @@ export class Minimap {
       ctx.fillRect(car.x - pos.x - 8, car.z - pos.z - 8, 16, 16);
     }
     ctx.restore();
+    // Ziel: gelber Punkt, am Rand festgehalten, wenn es weit weg ist
+    if (this.target) {
+      const dx = this.target.x - pos.x, dz = this.target.z - pos.z;
+      // gleiche Drehung wie die Karte
+      const rx = dx * Math.cos(Math.PI + camYaw) - dz * Math.sin(Math.PI + camYaw), ry = dx * Math.sin(Math.PI + camYaw) + dz * Math.cos(Math.PI + camYaw);
+      let px = rx * zoom * this.scale, py = ry * zoom * this.scale;
+      const l = Math.hypot(px, py), max = c - 10;
+      if (l > max) { px *= max / l; py *= max / l; }
+      ctx.fillStyle = '#f2c230'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(c + px, c + py, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
     ctx.save();
     ctx.translate(c, c);
     ctx.rotate(camYaw - heading);
@@ -167,6 +178,11 @@ export class BigMap {
     // Autos
     g.fillStyle = '#f2b632';
     for (const c of cars) if (!c.hasDriver) g.fillRect(toX(c.x) - 3 * dpr, toY(c.z) - 3 * dpr, 6 * dpr, 6 * dpr);
+    // Ziel
+    if (this.target) {
+      g.fillStyle = '#f2c230'; g.strokeStyle = '#000'; g.lineWidth = 2 * dpr;
+      g.beginPath(); g.arc(toX(this.target.x), toY(this.target.z), 8 * dpr, 0, Math.PI * 2); g.fill(); g.stroke();
+    }
     // Spieler-Pfeil
     g.save();
     g.translate(toX(pos.x), toY(pos.z));

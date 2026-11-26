@@ -105,3 +105,30 @@ html, body {
   font: 9px Arial, sans-serif; opacity: .65; white-space: nowrap; text-shadow: 0 1px 1px #000;
 }
 #credits-start { position: absolute; bottom: 10px; left: 0; right: 0; font: 11px Arial, sans-serif; opacity: .7; padding: 0 12px; }
+
+/* ---------- Zwischensequenz ---------- */
+.cine { position: fixed; left: 0; right: 0; height: 0; background: #000; z-index: 20; transition: height .6s; pointer-events: none; }
+#cine-top { top: 0; }
+#cine-bot { bottom: 0; }
+body.cutscene .cine { height: 11vh; }
+body.cutscene #hud, body.cutscene #buttons, body.cutscene #stick-base { display: none; }
+#subtitle {
+  position: fixed; left: 8%; right: 8%; bottom: 13vh; z-index: 21; text-align: center; pointer-events: none;
+  font: 600 20px Arial, sans-serif; color: #fff; text-shadow: 2px 2px 0 #000, -1px -1px 0 #000;
+  opacity: 0; transition: opacity .8s;
+}
+#subtitle.show { opacity: 1; }
+#skip {
+  position: fixed; right: calc(16px + env(safe-area-inset-right)); top: 2vh; z-index: 22; display: none;
+  background: rgba(0,0,0,.35); color: #fff; border: 1px solid rgba(255,255,255,.6); border-radius: 18px;
+  padding: 6px 14px; font: 600 14px Arial, sans-serif;
+}
+body.cutscene #skip { display: block; }
+#fade { position: fixed; inset: 0; background: #000; z-index: 19; opacity: 0; pointer-events: none; transition: opacity .35s; }
+#fade.on { opacity: 1; transition: none; }
+#objective {
+  position: absolute; left: 50%; transform: translateX(-50%); top: 14px; max-width: 55%;
+  background: rgba(0,0,0,.5); color: #f3e2b0; border-left: 4px solid #f2c230; padding: 6px 12px;
+  font: 600 15px Arial, sans-serif; opacity: 0; transition: opacity .6s; text-align: left;
+}
+#objective.show { opacity: 1; }

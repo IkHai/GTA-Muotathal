@@ -6,6 +6,7 @@ import { Car } from './car.js';
 import { FollowCamera } from './camera.js';
 import { Minimap, BigMap } from './minimap.js';
 import { Traffic } from './traffic.js';
+import { Story } from './story.js';
 
 import { setRenderer } from './textures.js';
 
@@ -90,6 +91,8 @@ const player = new Player(scene, world);
 const cars = world.carSpawns.map((s) => new Car(scene, world, s));
 const traffic = new Traffic(scene, world, 6);
 cars.push(...traffic.cars);
+const story = new Story(scene, world, camera);
+if (story.available) cars.push(story.car);
 const follow = new FollowCamera(camera, world);
 follow.yaw = 0;
 follow.focus.set(player.position.x, player.position.y + 1.5, player.position.z);
@@ -166,6 +169,17 @@ function frame(now) {
   if (!running) { renderer.render(scene, camera); return; }
   dt = Math.min(dt, 1 / 20); // bei Rucklern nicht durch Wände springen
 
+  // Zwischensequenz: Kamera und Fluchtauto laufen nach Drehbuch
+  if (story.active) {
+    story.update(dt);
+    for (const c of cars) if (!c.traffic && !c.story) c.update(dt, input);
+    traffic.update(dt, player, story.car, cars);
+    world.updateLamps(dt);
+    afterUpdate(now, story.car.mesh.position);
+    measureFps(dt);
+    return;
+  }
+
   input.update();
   const look = input.consumeLook();
 
@@ -181,7 +195,7 @@ function frame(now) {
   if (currentCar) input.setEnterAvailable(Math.abs(currentCar.speed) <= 12);
 
   if (!currentCar) player.update(dt, input, follow.yaw);
-  for (const c of cars) if (!c.traffic) c.update(dt, input);
+  for (const c of cars) if (!c.traffic && !c.story) c.update(dt, input);
   traffic.update(dt, player, currentCar, cars);
   world.updateLamps(dt);
   if (currentCar) { player.position.set(currentCar.x, currentCar.mesh.position.y, currentCar.z); }
@@ -189,19 +203,16 @@ function frame(now) {
   const target = currentCar ? currentCar.mesh.position : player.position;
   follow.update(dt, look, target, currentCar ? 'car' : 'foot', currentCar ? currentCar.heading : 0, currentCar ? currentCar.speed : 0);
 
-  // Sonne und Wolken
-  sunDisc.position.copy(camera.position).addScaledVector(sunDir, 8000);
-  sky.position.copy(camera.position);
-  // Schatten folgen der Figur
-  sun.target.position.copy(target);
-  sun.position.copy(target).addScaledVector(sunDir, 250);
-  world.clouds.position.x = ((now / 1000) * 4) % 600;
-  world.updateVisibility(camera.position);
+  minimap.target = bigMap.target = story.objective;
+
+  afterUpdate(now, target);
 
   speedEl.textContent = currentCar ? currentCar.kmh + ' km/h' : '';
 
   const area = areaName();
   if (area !== lastArea) { lastArea = area; toast(area); }
+  const done = story.checkObjective(player.position);
+  if (done) toast(done, 6);
   // Kartenrand: Hinweis, wenn man nahe dran ist
   const edge = world.half - Math.max(Math.abs(player.position.x), Math.abs(player.position.z));
   if (edge < 25 && !nearEdge) { nearEdge = true; toast('Hier endet die Karte', 3); }
@@ -212,7 +223,23 @@ function frame(now) {
   bigMap.update(player.position, currentCar ? currentCar.heading : player.heading, cars);
 
   renderer.render(scene, camera);
+  measureFps(dt);
+}
 
+// Himmel, Sonne und Schatten nachführen
+function afterUpdate(now, target) {
+  // Sonne und Wolken
+  sunDisc.position.copy(camera.position).addScaledVector(sunDir, 8000);
+  sky.position.copy(camera.position);
+  // Schatten folgen der Figur
+  sun.target.position.copy(target);
+  sun.position.copy(target).addScaledVector(sunDir, 250);
+  world.clouds.position.x = ((now / 1000) * 4) % 600;
+  world.updateVisibility(camera.position);
+  if (story.active) renderer.render(scene, camera);
+}
+
+function measureFps(dt) {
   // FPS messen und bei Bedarf die Auflösung senken
   fpsFrames++; fpsTime += dt;
   if (fpsTime >= 1) {
@@ -253,6 +280,14 @@ startEl.addEventListener('pointerup', async () => {
   startEl.style.display = 'none';
   running = true;
   last = performance.now();
+  // Story: Flucht über den Pragel, danach sitzt man im Fluchtauto im Stalden
+  story.start((car) => {
+    if (!car) return;
+    enterCar(car);
+    follow.yaw = car.heading;
+    follow.focus.set(car.x, car.mesh.position.y + 1.5, car.z);
+    lastArea = '';
+  });
   try {
     if (document.documentElement.requestFullscreen && matchMedia('(pointer: coarse)').matches) {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
@@ -263,4 +298,4 @@ startEl.addEventListener('pointerup', async () => {
 }, { once: true });
 
 // Für Tests im Browser
-window.__game = { player, cars, input, follow, world, get currentCar() { return currentCar; } };
+window.__game = { player, cars, input, follow, world, story, get currentCar() { return currentCar; } };
