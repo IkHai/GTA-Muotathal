@@ -7,6 +7,7 @@ import { FollowCamera } from './camera.js';
 import { Minimap, BigMap } from './minimap.js';
 import { Traffic } from './traffic.js';
 import { Story, loadSave, clearSave } from './story.js';
+import { Interiors } from './interiors.js';
 
 import { setRenderer } from './textures.js';
 
@@ -112,7 +113,8 @@ function toast(text, seconds = 2.5) {
   toastTimer = seconds;
 }
 
-story.attach({ enterCar, exitCar, player, follow, toast, currentCar: () => currentCar });
+const interiors = new Interiors(scene, world, { player, follow, toast, story });
+story.attach({ enterCar, exitCar, player, follow, toast, interiors, currentCar: () => currentCar });
 
 function nearestCar() {
   let best = null, bestD = 3.8;
@@ -188,9 +190,18 @@ function frame(now) {
   if (currentCar) {
     if (input.consume('enter')) exitCar();
   } else {
-    const car = nearestCar();
-    input.setEnterAvailable(!!car);
-    if (input.consume('enter') && car) enterCar(car);
+    // Türen (Betreten, Hinaus, Treppen, Bett) gehen vor dem Einsteigen
+    const act = interiors.actionAt(player.position);
+    if (act) {
+      input.setEnterLabel(act.label);
+      input.setEnterAvailable(true);
+      if (input.consume('enter')) act.go();
+    } else {
+      input.setEnterLabel('Einsteigen');
+      const car = interiors.inside ? null : nearestCar();
+      input.setEnterAvailable(!!car);
+      if (input.consume('enter') && car) enterCar(car);
+    }
   }
   input.consume('enter');
 
@@ -200,6 +211,7 @@ function frame(now) {
   for (const c of cars) if (!c.traffic && !c.story) c.update(dt, input);
   traffic.update(dt, player, currentCar, cars);
   world.updateLamps(dt);
+  interiors.update(dt);
   if (currentCar) { player.position.set(currentCar.x, currentCar.mesh.position.y, currentCar.z); }
 
   const target = currentCar ? currentCar.mesh.position : player.position;
@@ -307,4 +319,4 @@ startEl.addEventListener('pointerup', async (e) => {
 });
 
 // Für Tests im Browser
-window.__game = { player, cars, input, follow, world, story, enterCar, exitCar, get currentCar() { return currentCar; } };
+window.__game = { player, cars, input, follow, world, story, interiors, enterCar, exitCar, get currentCar() { return currentCar; } };

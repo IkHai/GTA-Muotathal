@@ -24,7 +24,7 @@ function rnd(seed) {
 }
 
 // Verwitterter Verputz: Flecken, Laufspuren und abgeplatzte Stellen mit Backstein
-function plasterTex(base, key) {
+export function plasterTex(base, key) {
   return canvasTex('plaster' + key, 512, 512, (g, w, h) => {
     const r = rnd(7 + key.length * 13);
     g.fillStyle = base; g.fillRect(0, 0, w, h);
@@ -86,7 +86,7 @@ function roofTex() {
   }, true);
 }
 
-function graffitiTex(seed) {
+export function graffitiTex(seed) {
   return canvasTex('graffiti' + seed, 256, 128, (g, w, h) => {
     const r = rnd(seed);
     g.clearRect(0, 0, w, h);
@@ -101,7 +101,7 @@ function graffitiTex(seed) {
 }
 
 // Neon-Figur über dem Schild: liegende Dame als einfache Umrisslinie (wie ein klassisches Barschild)
-function neonFigureTex() {
+export function neonFigureTex() {
   return canvasTex('hellfigure', 512, 256, (g, w, h) => {
     g.clearRect(0, 0, w, h);
     g.strokeStyle = '#ffb0d4'; g.lineWidth = 9; g.lineCap = 'round'; g.lineJoin = 'round';
@@ -122,7 +122,7 @@ function neonFigureTex() {
   });
 }
 
-function plainTex(text, bg, fg) {
+export function plainTex(text, bg, fg) {
   return canvasTex('t' + text, 256, 64, (g, w, h) => {
     g.fillStyle = bg; g.fillRect(0, 0, w, h);
     g.fillStyle = fg; g.font = 'bold 36px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, w / 2, h / 2 + 2);
@@ -329,7 +329,7 @@ function metalTex() {
 }
 
 // Plakatrahmen mit leuchtender Tänzerin als einfacher Umriss (angezogen, wie ein Barschild)
-function posterTex() {
+export function posterTex() {
   return canvasTex('clubposter', 128, 192, (g, w, h) => {
     g.fillStyle = '#2a0c1c'; g.fillRect(0, 0, w, h);
     const grd = g.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, 90);
@@ -356,8 +356,8 @@ export function buildClub(pts, ctx) {
   group.position.set(F.fx, F.gMin, F.fz);
   group.rotation.y = F.rotY;
   const base = -1.8;
-  const G1 = 3.4, G2 = 6.4, H1 = 9.2;                 // Decke EG, Decke 1. OG, Traufe
-  const pitch = 0.47;
+  const G1 = 4.3, G2 = 7.7, H1 = 10.8;                // Decke EG, Decke 1. OG, Traufe (hohe alte Gasthaus-Etagen)
+  const pitch = 0.5;
   const ridge = H1 + hw * Math.tan(pitch);
 
   // Wände: gelblicher, verwitterter Putz
@@ -425,33 +425,33 @@ export function buildClub(pts, ctx) {
   B.box(X(-0.15), G1 + 0.08, -0.05, 9.2, 0.14, 0.12, woodD);
 
   // Fenster mit grünen Läden
-  const sh = { shutter: 0x2f4a36, frame: 0xe2dccb, curtain: 0x8a2a3a, glass: 0x3a1a22 };
+  const sh = { shutter: 0x2f4a36, frame: 0xe2dccb, curtain: 0x8a2a3a, glass: 0x3a1a22, w: 1.25, h: 1.75 };
   // 1. OG vorne: zwei links, eins rechts vom Schild, eins im Anbau
-  for (const u of [-5.2, 2.9]) windowAt(B, 'f', X(u), G1 + 1.55, W, D, sh);
-  windowAt(B, 'f', X(hw - 1.45), G1 + 1.55, W, D, { ...sh, shutter: null, out: ad });
+  for (const u of [-5.2, 2.9]) windowAt(B, 'f', X(u), G1 + 1.75, W, D, sh);
+  windowAt(B, 'f', X(hw - 1.45), G1 + 1.75, W, D, { ...sh, shutter: null, out: ad });
   // 2. OG vorne: drei, Dachboden zwei
-  for (const u of [-3.6, 0, 3.6]) windowAt(B, 'f', X(u), G2 + 1.45, W, D, { ...sh, broken: u === 3.6 });
-  for (const u of [-1.4, 1.4]) windowAt(B, 'f', X(u), H1 + 1.15, W, D, { ...sh, w: 0.9, h: 1.15 });
-  windowAt(B, 'f', X(hw - 1.45), 1.7, W, D, { ...sh, shutter: null, curtain: 0x5a1a2a });   // EG rechts
+  for (const u of [-3.6, 0, 3.6]) windowAt(B, 'f', X(u), G2 + 1.65, W, D, { ...sh, broken: u === 3.6 });
+  for (const u of [-1.4, 1.4]) windowAt(B, 'f', X(u), H1 + 1.3, W, D, { ...sh, w: 1.0, h: 1.3 });
+  windowAt(B, 'f', X(hw - 1.45), 2.1, W, D, { ...sh, shutter: null, curtain: 0x5a1a2a });   // EG rechts
   // Seiten und hinten
   for (const side of ['l', 'r']) {
     const stairs = side === 'l';       // Aussentreppe auf der linken Seite (lokal +x)
-    for (const [y, list] of [[1.7, [3.5, 9.5, 12]], [G1 + 1.5, stairs ? [2.6, 10.5, 12.6] : [2.5, 5.5, 8.5, 11.5]], [G2 + 1.4, [2.5, 5.5, 8.5, 11.5]]]) {
-      for (const z of list) if (z < D - 0.8) windowAt(B, side, z, y, W, D, { ...sh, w: 0.95, h: y < 2 ? 1.1 : 1.35, broken: z === 5.5 && side === 'r' });
+    for (const [y, list] of [[2.0, stairs ? [11.0, 12.8] : [3.5, 9.5, 12]], [G1 + 1.7, stairs ? [2.6, 11.6] : [2.5, 5.5, 8.5, 11.5]], [G2 + 1.6, [2.5, 5.5, 8.5, 11.5]]]) {
+      for (const z of list) if (z < D - 0.8) windowAt(B, side, z, y, W, D, { ...sh, w: 1.0, h: y < 2.5 ? 1.2 : 1.5, broken: z === 5.5 && side === 'r' });
     }
   }
-  for (const u of [-3.5, 0, 3.5]) { windowAt(B, 'b', X(u), G1 + 1.5, W, D, sh); windowAt(B, 'b', X(u), G2 + 1.4, W, D, sh); }
+  for (const u of [-3.5, 0, 3.5]) { windowAt(B, 'b', X(u), G1 + 1.7, W, D, sh); windowAt(B, 'b', X(u), G2 + 1.6, W, D, sh); }
   windowAt(B, 'b', X(2.5), 1.6, W, D, { w: 1.0, h: 1.0, curtain: false, glass: 0x241a1c, frame: 0x4a3a34 });
 
   // Eingang (leicht rechts der Mitte): rote Glas-Doppeltür, Plakate, Palmen in Töpfen, Kordel
   const du = 0.6, dx = X(du);
-  B.box(dx, 1.25, 0.05, 2.3, 2.7, 0.2, 0x1a080c);
+  B.box(dx, 1.45, 0.05, 2.5, 3.1, 0.2, 0x1a080c);
   for (const s of [-1, 1]) {
-    B.box(dx + s * 0.5, 1.2, -0.05, 0.95, 2.4, 0.06, 0x6a0c18);
-    B.box(dx + s * 0.5, 1.35, -0.09, 0.6, 1.6, 0.02, 0xb03050);                     // Glas, rot hinterleuchtet
+    B.box(dx + s * 0.55, 1.4, -0.05, 1.05, 2.8, 0.06, 0x6a0c18);
+    B.box(dx + s * 0.55, 1.6, -0.09, 0.65, 1.9, 0.02, 0xb03050);                     // Glas, rot hinterleuchtet
     B.box(dx + s * 0.1, 1.15, -0.12, 0.04, 0.5, 0.05, 0xd4af37);
   }
-  B.box(dx, 2.6, -0.5, 2.8, 0.12, 1.0, 0x2a1418);                                        // kleines Vordach über der Tür
+  B.box(dx, 3.05, -0.5, 3.0, 0.12, 1.0, 0x2a1418);                                        // kleines Vordach über der Tür
   for (const s of [-1, 1]) {
     const px = dx + s * 1.45;
     B.shape(new THREE.CylinderGeometry(0.28, 0.2, 0.55, 8), px, 0.28, -0.45, 1, 1, 1, 0x5a5a5e);   // Topf
@@ -466,7 +466,7 @@ export function buildClub(pts, ctx) {
   for (const s of [-1, 1]) B.shape(new THREE.BoxGeometry(0.05, 0.05, 1.8), dx + s * 1.2, 0.72, -2.0, 1, 1, 1, 0x9a1020);
 
   // Aussentreppe links (lokal +x) hinauf zur Holztür im 1. OG
-  const steps = 19, rise = G1 / steps, run = 0.3, z0 = 0.7, sw = 1.3;
+  const steps = 24, rise = G1 / steps, run = 0.3, z0 = 0.7, sw = 1.3;
   const sx = hw + 0.05 + sw / 2;
   const walk = [];
   for (let i = 0; i < steps; i++) {
@@ -503,20 +503,20 @@ export function buildClub(pts, ctx) {
   // Leuchtendes
   const glow = (tex, transparent = false) => new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, transparent, depthWrite: !transparent });
   const letters = new THREE.Mesh(new THREE.PlaneGeometry(6.0, 1.5), glow(neonLettersTex(), true));
-  letters.position.set(X(-1.15), G1 + 0.95, -0.08); letters.rotation.y = Math.PI;
+  letters.position.set(X(-1.15), G1 + 1.0, -0.08); letters.rotation.y = Math.PI;
   const fig = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.8), glow(neonFigureTex(), true));
-  fig.position.set(X(-0.9), G1 + 2.25, -0.08); fig.rotation.y = Math.PI;
+  fig.position.set(X(-0.9), G1 + 2.45, -0.08); fig.rotation.y = Math.PI;
   group.add(letters, fig);
   for (const u of [-2.3, 3.3]) {
-    const pst = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 1.25), glow(posterTex()));
-    pst.position.set(X(u), 1.55, -0.07); pst.rotation.y = Math.PI;
+    const pst = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.5), glow(posterTex()));
+    pst.position.set(X(u), 1.75, -0.07); pst.rotation.y = Math.PI;
     group.add(pst);
   }
   const neonB = new Builder();
-  for (const s of [-1, 1]) neonB.box(dx + s * 1.18, 1.3, -0.1, 0.06, 2.6, 0.06, 0xff4f9a);
-  neonB.box(dx, 2.55, -0.1, 2.4, 0.06, 0.06, 0xff4f9a);
+  for (const s of [-1, 1]) neonB.box(dx + s * 1.28, 1.5, -0.1, 0.06, 3.0, 0.06, 0xff4f9a);
+  neonB.box(dx, 2.98, -0.1, 2.6, 0.06, 0.06, 0xff4f9a);
   for (const u of [-2.6, 3.6]) neonB.box(X(u), G1 - 0.3, -0.15, 0.32, 0.18, 0.2, 0xffd890);     // Wandlampen
-  neonB.box(X(-5.6), 3.0, -0.12, 0.3, 0.18, 0.2, 0xffd890);
+  neonB.box(X(-5.6), 3.6, -0.12, 0.3, 0.18, 0.2, 0xffd890);
   neonB.box(sx - 0.55, G1 + 2.15, doorZ, 0.25, 0.2, 0.25, 0xffe0a0);                             // Lampe über der Holztür
   const neon = neonB.build(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
   group.add(neon);
@@ -545,7 +545,8 @@ export function buildClub(pts, ctx) {
 
   const [ex, ez] = F.toWorld(dx, -2.6);
   const [ux, uz] = F.toWorld(sx, doorZ);
-  const result = { id: 'club', name: "Hell's Club", door: { x: ex, z: ez }, upperDoor: { x: ux, z: uz, y: oy + G1 }, x: F.ox, z: F.oz, heading: F.rotY };
+  const [nx, nz] = F.toWorld(dx, -0.9);
+  const result = { id: 'club', name: "Hell's Club", door: { x: ex, z: ez }, entry: { x: nx, z: nz, y: oy }, upperDoor: { x: ux, z: uz, y: oy + G1 }, x: F.ox, z: F.oz, heading: F.rotY };
   // Parkplatz hinter dem Haus
   const [px, pz] = F.toWorld(0, D + 9);
   const pg = terrain.heightAt(px, pz);

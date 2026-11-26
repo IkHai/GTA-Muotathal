@@ -19,7 +19,8 @@ export class Player {
     const fig = makeCharacter();
     const g = fig.group;
     this.armL = fig.armL; this.armR = fig.armR; this.legL = fig.legL; this.legR = fig.legR;
-    this.hip = fig.hip;
+    this.hip = fig.hip; this.head = fig.head;
+    this.indoor = null;   // Kollisionen eines Innenraums, wenn man drin ist
     this.mesh = g;
     scene.add(g);
 
@@ -33,9 +34,12 @@ export class Player {
 
   setVisible(v) { this.mesh.visible = v; this.shadow.visible = v; }
 
+  get cols() { return this.indoor || this.world.colliders; }
+
   groundAt(x, z, feetY) {
+    const s = this.cols.supportAt(x, z, this.radius, feetY);
+    if (this.indoor) return s;
     const t = this.world.terrain.heightAt(x, z, feetY);
-    const s = this.world.colliders.supportAt(x, z, this.radius, feetY);
     return Math.max(t, s);
   }
 
@@ -66,12 +70,14 @@ export class Player {
     let nz = p.z + wz * this.speed * dt * (strength > 0.001 ? 1 : 0);
 
     // zu steile Hänge blockieren
-    const hOld = this.world.terrain.heightAt(p.x, p.z, p.y);
-    const hNew = this.world.terrain.heightAt(nx, nz, p.y);
-    const dist = Math.hypot(nx - p.x, nz - p.z);
-    if (dist > 1e-4 && (hNew - hOld) / dist > 1.1 && hNew > p.y + 0.2) { nx = p.x; nz = p.z; }
+    if (!this.indoor) {
+      const hOld = this.world.terrain.heightAt(p.x, p.z, p.y);
+      const hNew = this.world.terrain.heightAt(nx, nz, p.y);
+      const dist = Math.hypot(nx - p.x, nz - p.z);
+      if (dist > 1e-4 && (hNew - hOld) / dist > 1.1 && hNew > p.y + 0.2) { nx = p.x; nz = p.z; }
+    }
 
-    const r = this.world.colliders.resolve(nx, nz, this.radius, p.y);
+    const r = this.cols.resolve(nx, nz, this.radius, p.y);
     nx = Math.max(-this.world.half + 5, Math.min(this.world.half - 5, r.x));
     nz = Math.max(-this.world.half + 5, Math.min(this.world.half - 5, r.z));
     p.x = nx; p.z = nz;
@@ -108,9 +114,17 @@ export class Player {
     this.hip.rotation.x = run * 0.12;
     this.mesh.position.copy(this.position);
     this.mesh.rotation.y = this.heading;
-    const g = this.world.terrain.heightAt(this.position.x, this.position.z, this.position.y);
-    const s = this.world.colliders.supportAt(this.position.x, this.position.z, this.radius, this.position.y + 0.01);
-    this.shadow.position.set(this.position.x, Math.max(g, s) + 0.05, this.position.z);
+    this.shadow.position.set(this.position.x, this.groundAt(this.position.x, this.position.z, this.position.y + 0.01) + 0.05, this.position.z);
+  }
+
+  // direkt an eine Stelle setzen (Innenräume)
+  place(x, y, z, heading) {
+    this.position.set(x, y, z);
+    const g = this.groundAt(x, z, y + 0.4);
+    if (g > -1e6) this.position.y = g;
+    this.heading = heading;
+    this.vy = 0; this.speed = 0; this.grounded = true;
+    this.mesh.position.copy(this.position); this.mesh.rotation.y = heading;
   }
 
   teleport(x, z, heading) {

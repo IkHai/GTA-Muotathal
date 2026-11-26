@@ -157,6 +157,10 @@ export class Input {
     this.buttons.enter.textContent = driving ? 'Aussteigen' : 'Einsteigen';
   }
 
+  setEnterLabel(text) {
+    if (this.buttons.enter.textContent !== text) this.buttons.enter.textContent = text;
+  }
+
   setEnterAvailable(ok) {
     this.buttons.enter.classList.toggle('dim', !ok);
   }
