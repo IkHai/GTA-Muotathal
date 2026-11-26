@@ -140,7 +140,7 @@ export class Grass {
       for (let k = 0; k < n; k++) {
         const x = x0 + hash(i, j, salt + k * 3) * CELL, z = z0 + hash(i, j, salt + k * 3 + 1) * CELL;
         if (Math.abs(x) > half || Math.abs(z) > half) continue;
-        if (t.roadAt) { const r = t.roadAt(x, z, 0.6); if (r === r) continue; }
+        if (t.roadAt) { const r = t.roadAt(x, z, land === LAND.TOWN ? 2.1 : 0.6); if (r === r) continue; }
         const y = t.heightAt(x, z);
         if (t.groundAt && Math.abs(y - t.groundAt(x, z)) > 0.6) continue;   // Fluss, Brücke
         if (t.landAt(x, z) === LAND.WATER) continue;
