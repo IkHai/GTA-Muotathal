@@ -7,6 +7,7 @@ import { makeRng } from './rng.js';
 import { buildRoadNet, drawRoadNet } from './roads.js';
 import { prepareRivers, drawRivers, installRiverGround, carveRiverBed } from './river.js';
 import { findLandmark, decorateLandmark } from './landmarks.js';
+import { buildClub, buildBlock } from './handmade.js';
 
 // Kachelgrösse für Gelände und Details. Nur Kacheln in der Nähe werden fein gezeichnet.
 const CHUNK = 500;
@@ -141,6 +142,17 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
   for (const b of osm.buildings) {
     // besondere Gebäude der Story (Hell's Club, Wohnblock, …) bekommen eigenes Aussehen
     const lm = findLandmark(b);
+    if (lm && lm.custom) {
+      // von Hand modelliert (Concept Art), nicht aus dem OSM-Grundriss generiert
+      let pts = toPts(b.p);
+      let area = 0;
+      for (let i = 0; i < pts.length; i++) { const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % pts.length]; area += x1 * z2 - x2 * z1; }
+      if (area < 0) pts = pts.reverse();
+      const r = (lm.custom === 'club' ? buildClub : buildBlock)(pts, { terrain, chunkAt, colliders });
+      houses.push(r.info);
+      landmarks[lm.id] = r.result;
+      continue;
+    }
     const info = building(b, terrain, colliders, chunkAt, rng, lm ? lm.style : undefined);
     if (!info) continue;
     houses.push(info);

@@ -106,9 +106,9 @@ export class Story {
     });
   }
 
-  placeOnFoot(p, heading) {
+  placeOnFoot(p, heading, camYaw = heading) {
     this.game.player.teleport(p.x, p.z, heading);
-    this.game.follow.yaw = heading;
+    this.game.follow.yaw = camYaw;
     this.game.follow.focus.set(p.x, this.game.player.position.y + 1.5, p.z);
   }
 
@@ -327,7 +327,7 @@ export class Story {
     this.ui.dialog.classList.remove('show');
     this.game.player.setVisible(true);
     const lm = this.world.landmarks.club;
-    this.placeOnFoot(lm.door, lm.heading + Math.PI);
+    this.placeOnFoot(lm.door, lm.heading + Math.PI, lm.heading);   // Kamera zeigt auf die Fassade
     this.flash();
     writeSave({ v: 1, chapter: 1, step: 'home' });
     this.setStep('home');

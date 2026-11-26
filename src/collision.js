@@ -43,6 +43,7 @@ export class Colliders {
     const b = { type: 2, cx, cz, ax, az, hu: halfU, hv: halfV, bottom, top };
     const r = Math.hypot(halfU, halfV);
     this._insert(b, cx - r, cx + r, cz - r, cz + r);
+    return b;
   }
 
   near(x, z, r) {
@@ -123,8 +124,12 @@ export class Colliders {
   supportAt(x, z, r, feetY, stepHeight = 0.35) {
     let best = -Infinity;
     for (const it of this.near(x, z, r)) {
-      if (it.type !== 1) continue;
-      if (x < it.minX - r * 0.5 || x > it.maxX + r * 0.5 || z < it.minZ - r * 0.5 || z > it.maxZ + r * 0.5) continue;
+      if (it.type === 0 || it.dead) continue;
+      if (it.type === 2) {
+        if (!it.walk) continue;   // nur begehbare gedrehte Kisten (Treppenstufen, Böden)
+        const px = x - it.cx, pz = z - it.cz;
+        if (Math.abs(px * it.ax + pz * it.az) > it.hu + r * 0.5 || Math.abs(-px * it.az + pz * it.ax) > it.hv + r * 0.5) continue;
+      } else if (x < it.minX - r * 0.5 || x > it.maxX + r * 0.5 || z < it.minZ - r * 0.5 || z > it.maxZ + r * 0.5) continue;
       if (feetY >= it.top - stepHeight && it.top > best) best = it.top;
     }
     return best;
