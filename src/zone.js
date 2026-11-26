@@ -17,7 +17,7 @@ export class Zone {
     this.world = world;
     // Vorhang entlang der Grenze (ohne das Stück am Kartenrand)
     const t = world.terrain, pos = [], uv = [];
-    const H = 45;
+    const H = 12;
     for (let i = 0; i < POLY.length - 1; i++) {
       const [ax, az] = POLY[i], [bx, bz] = POLY[i + 1];
       if (ax > 1990 && bx > 1990) continue;
@@ -33,13 +33,25 @@ export class Zone {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    const c = document.createElement('canvas'); c.width = 4; c.height = 64;
-    const cg = c.getContext('2d');
-    const gr = cg.createLinearGradient(0, 64, 0, 0);
-    gr.addColorStop(0, 'rgba(255,90,40,0.75)'); gr.addColorStop(0.15, 'rgba(255,90,40,0.35)'); gr.addColorStop(1, 'rgba(255,90,40,0)');
-    cg.fillStyle = gr; cg.fillRect(0, 0, 4, 64);
-    const tex = new THREE.CanvasTexture(c);
-    this.wall = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false, toneMapped: false }));
+    // Nur in der Nähe sichtbar: Deckkraft fällt mit dem Abstand zum Spieler ab (unter ~6 m voll, ab ~22 m weg)
+    this.uniforms = { uPlayer: { value: new THREE.Vector3() }, uTime: { value: 0 } };
+    this.wall = new THREE.Mesh(g, new THREE.ShaderMaterial({
+      uniforms: this.uniforms,
+      vertexShader: `varying vec2 vUv; varying vec3 vW;
+        void main() { vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+      fragmentShader: `uniform vec3 uPlayer; uniform float uTime; varying vec2 vUv; varying vec3 vW;
+        void main() {
+          float d = distance(vW.xz, uPlayer.xz) + max(0.0, abs(vW.y - uPlayer.y) - 3.0) * 0.6;
+          float near = 1.0 - smoothstep(6.0, 22.0, d);
+          if (near <= 0.001) discard;
+          float h = vW.y - uPlayer.y;
+          float fall = 1.0 - smoothstep(0.0, 9.0, h);
+          float grid = max(step(0.93, fract(vW.y * 0.8 - uTime * 0.4)), step(0.96, fract((vW.x + vW.z) * 0.5)));
+          float a = near * (0.16 + 0.5 * grid) * fall + near * 0.35 * (1.0 - smoothstep(0.0, 1.5, abs(h + 0.3)));
+          gl_FragColor = vec4(vec3(1.0, 0.36, 0.16) * a, a);
+        }`,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+    }));
     this.wall.frustumCulled = false;
     this.wall.visible = false;
     scene.add(this.wall);
@@ -55,7 +67,17 @@ export class Zone {
     return inside;
   }
 
+  bbox() {
+    if (!this._bb) {
+      const xs = this.poly.map((p) => p[0]), zs = this.poly.map((p) => p[1]);
+      this._bb = [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)];
+    }
+    return this._bb;
+  }
+
   setActive(on) { this.active = on; this.wall.visible = on; }
+
+  update(px, py, pz, t) { this.uniforms.uPlayer.value.set(px, py, pz); this.uniforms.uTime.value = t; }
 
   // Grenze und abgedunkeltes Aussen auf einer Karte zeichnen. tx/tz: Welt -> Karte
   draw(g, tx, tz, lw, big) {
@@ -66,7 +88,7 @@ export class Zone {
     g.moveTo(-huge, -huge); g.lineTo(huge, -huge); g.lineTo(huge, huge); g.lineTo(-huge, huge); g.closePath();
     this.poly.forEach(([x, z], i) => (i ? g.lineTo(tx(x), tz(z)) : g.moveTo(tx(x), tz(z))));
     g.closePath();
-    g.fillStyle = 'rgba(0,0,0,0.45)';
+    g.fillStyle = big ? 'rgba(12,16,12,0.9)' : 'rgba(10,12,10,0.6)';
     g.fill('evenodd');
     g.beginPath();
     this.poly.forEach(([x, z], i) => (i ? g.lineTo(tx(x), tz(z)) : g.moveTo(tx(x), tz(z))));
@@ -74,7 +96,7 @@ export class Zone {
     g.strokeStyle = 'rgba(255,90,40,0.95)'; g.lineWidth = lw; g.stroke();
     if (big) {
       g.font = `bold ${lw * 5}px Arial`; g.fillStyle = 'rgba(255,200,170,0.9)'; g.textAlign = 'center';
-      g.fillText('Kapitel 1: nur hier', tx(1500), tz(-420));
+      g.fillText('Rest des Tals: nach Kapitel 1', tx(1500), tz(-520));
     }
     g.restore();
   }

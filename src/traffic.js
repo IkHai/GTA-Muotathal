@@ -27,7 +27,7 @@ export class Traffic {
       let near = 0, best = Infinity;
       for (const p of route.pts) { const d = Math.hypot(p.x - world.spawn.x, p.z - world.spawn.z); if (d < best) { best = d; near = p.d; } }
       const s = Math.max(10, Math.min(route.length - 10, near + (i - 2) * 110 + 40));
-      const car = new Car(scene, world, { x: 0, z: 0, heading: 0, color: COLORS[i % COLORS.length] });
+      const car = new Car(scene, world, { x: 0, z: 0, heading: 0, color: COLORS[i % COLORS.length], model: i % 3 === 1 ? 'suv' : 'sedan' });
       car.traffic = { route, s, dir: i % 2 ? 1 : -1, speed: 0, target: 11 + (i % 3) * 2 };
       this.cars.push(car);
       this.place(car);
@@ -58,7 +58,7 @@ export class Traffic {
       if (t.s > t.route.length - 5) { t.s = t.route.length - 5; t.dir = -1; }
       car.speed = t.speed;
       this.place(car);
-      for (const w of car.wheels) w.rotation.x += t.speed / 0.34 * dt;
+      for (const w of car.wheels) w.rotation.x += t.speed / car.wheelR * dt;
     }
   }
 

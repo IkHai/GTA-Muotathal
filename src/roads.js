@@ -264,8 +264,8 @@ export function drawRoadNet(net, terrain, chunkAt, colliders, colors) {
             return [x, terrain.groundAt(x, z) - 0.15, z];
           };
           const Pf = foot(P, hp), Qf = foot(Q, hq);
-          push(ch.roads, 0x6b6a4c, P, Q, Qf, P, Qf, Pf);
-          push(ch.roads, 0x6b6a4c, P, Qf, Q, P, Pf, Qf);
+          push(ch.roads, 0x93a060, P, Q, Qf, P, Qf, Pf);
+          push(ch.roads, 0x93a060, P, Qf, Q, P, Pf, Qf);
         }
       }
     }

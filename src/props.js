@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Builder } from './builder.js';
-import { buildBody } from './car.js';
+import { buildBody, buildSuv } from './car.js';
 import { POLY } from './zone.js';
 
 // Leben im Dorf rund um den Stalden: Weide- und Gartenzäune, Dorfbrunnen, Bänke,
@@ -65,6 +65,7 @@ export function buildProps(scene, world) {
     const hw = (r.w || 4) / 2;
     for (const sgn of [1, -1]) {
       const P = along(pts, 2.4);
+      const segs = [];
       for (let i = 0; i < P.length - 1; i++) {
         const [x0, z0, ux, uz] = P[i];
         const nx = -uz * sgn, nz = ux * sgn;
@@ -80,26 +81,37 @@ export function buildProps(scene, world) {
         if (onRoad(ax, az, 0.3) || onRoad(bx, bz, 0.3) || !free(ax, az, 0.3) || !free(bx, bz, 0.3)) continue;
         const ya = t.heightAt(ax, az), yb = t.heightAt(bx, bz);
         if (Math.abs(ya - yb) > 1.2) continue;
-        const len = Math.hypot(bx - ax, bz - az), ry = rot((bx - ax) / len, (bz - az) / len);
-        const slope = Math.atan2(yb - ya, len);
-        const mx = (ax + bx) / 2, mz = (az + bz) / 2, my = (ya + yb) / 2;
-        if (land === TOWN) {
-          // Gartenzaun: weisse Latten
-          B.box(ax, ya + 0.5, az, 0.09, 1.0, 0.09, 0xd8d2c4, ry);
-          for (const h of [0.25, 0.7]) B.shape(new THREE.BoxGeometry(1, 1, 1), mx, my + h, mz, len, 0.06, 0.03, 0xd0c8b8, ry, 0, slope);
-          for (let k = 1; k < 8; k++) {
-            const f = k / 8, px = ax + (bx - ax) * f, pz = az + (bz - az) * f, py = ya + (yb - ya) * f;
-            B.box(px, py + 0.42, pz, 0.08, 0.84, 0.02, k % 2 ? 0xe4ded0 : 0xdad4c6, ry);
-          }
-        } else {
-          // Weidezaun: Holzpfosten und zwei Latten
-          B.box(ax, ya + 0.55, az, 0.12, 1.1, 0.12, 0x6a5a44, ry);
-          for (const h of [0.45, 0.95]) B.shape(new THREE.BoxGeometry(1, 1, 1), mx, my + h, mz, len + 0.1, 0.08, 0.05, 0x7a6a50, ry, 0, slope);
-        }
-        cols.addOrientedBox(mx, mz, (bx - ax) / len, (bz - az) / len, len / 2, 0.06, my - 0.5, my + 1.1);
-        fences++;
+        segs.push([i, ax, az, bx, bz, ya, yb, land]);
+      }
+      // nur zusammenhängende Zaunstücke (mind. 4 Felder), keine einzelnen Reste in der Wiese
+      let runStart = 0;
+      for (let j = 0; j <= segs.length; j++) {
+        if (j < segs.length && j > runStart && segs[j][0] === segs[j - 1][0] + 1 && segs[j][7] === segs[j - 1][7]) continue;
+        if (j - runStart >= 4) for (let q = runStart; q < j; q++) drawFence(...segs[q], q === j - 1);
+        runStart = j;
       }
     }
+  }
+  function drawFence(i, ax, az, bx, bz, ya, yb, land, last) {
+    const len = Math.hypot(bx - ax, bz - az), ry = rot((bx - ax) / len, (bz - az) / len);
+    const slope = Math.atan2(yb - ya, len);
+    const mx = (ax + bx) / 2, mz = (az + bz) / 2, my = (ya + yb) / 2;
+    if (land === TOWN) {
+      // Gartenzaun: weisse Latten
+      B.box(ax, ya + 0.5, az, 0.09, 1.0, 0.09, 0xd8d2c4, ry);
+      for (const h of [0.25, 0.7]) B.shape(new THREE.BoxGeometry(1, 1, 1), mx, my + h, mz, len, 0.06, 0.03, 0xd0c8b8, ry, 0, slope);
+      for (let k = 1; k < 8; k++) {
+        const f = k / 8, px = ax + (bx - ax) * f, pz = az + (bz - az) * f, py = ya + (yb - ya) * f;
+        B.box(px, py + 0.42, pz, 0.08, 0.84, 0.02, k % 2 ? 0xe4ded0 : 0xdad4c6, ry);
+      }
+    } else {
+      // Weidezaun: Holzpfosten und zwei Latten
+      B.box(ax, ya + 0.55, az, 0.12, 1.1, 0.12, 0x6a5a44, ry);
+      for (const h of [0.45, 0.95]) B.shape(new THREE.BoxGeometry(1, 1, 1), mx, my + h, mz, len + 0.1, 0.08, 0.05, 0x7a6a50, ry, 0, slope);
+    }
+    cols.addOrientedBox(mx, mz, (bx - ax) / len, (bz - az) / len, len / 2, 0.06, my - 0.5, my + 1.1);
+    if (last) B.box(bx, yb + 0.5, bz, land === TOWN ? 0.09 : 0.12, land === TOWN ? 1.0 : 1.1, land === TOWN ? 0.09 : 0.12, land === TOWN ? 0xd8d2c4 : 0x6a5a44, ry);
+    fences++;
   }
 
   // ---------- Dorfbrunnen und Bänke ----------
@@ -195,10 +207,11 @@ export function buildProps(scene, world) {
       const hs = [[2, 0], [-2, 0], [0, 2], [0, -2]].map(([dx, dz]) => t.heightAt(x + dx, z + dz));
       if (Math.max(...hs) - Math.min(...hs) > 0.8) continue;
       const y = t.heightAt(x, z);
-      const car = buildBody(carColors[cars % carColors.length]);
-      const wg = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 12); wg.rotateZ(Math.PI / 2);
+      const suv = cars % 3 === 1, wr = suv ? 0.37 : 0.34, wb = suv ? 1.33 : 1.38;
+      const car = suv ? buildSuv(cars % 2 ? 0xb4b8bc : 0x2e4a3a) : buildBody(carColors[cars % carColors.length]);
+      const wg = new THREE.CylinderGeometry(wr, wr, 0.22, 12); wg.rotateZ(Math.PI / 2);
       const wmat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
-      for (const [wx, wz] of [[-0.8, 1.38], [0.8, 1.38], [-0.8, -1.38], [0.8, -1.38]]) { const w = new THREE.Mesh(wg, wmat); w.position.set(wx, 0.34, wz); car.add(w); }
+      for (const [wx, wz] of [[-0.8, wb], [0.8, wb], [-0.8, -wb], [0.8, -wb]]) { const w = new THREE.Mesh(wg, wmat); w.position.set(wx, wr, wz); car.add(w); }
       const heading = Math.atan2(ux, uz) + (hash(z0, x0) < 0.5 ? Math.PI : 0);
       car.position.set(x, y, z); car.rotation.y = heading;
       group.add(car); carSpots.push([x, z, heading]);
