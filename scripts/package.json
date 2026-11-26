@@ -1,0 +1,10 @@
+{
+  "name": "muotathal-geodata",
+  "private": true,
+  "type": "module",
+  "description": "Lädt Höhenmodell (swisstopo) und OpenStreetMap-Daten und wandelt sie in kompakte Spieldateien um.",
+  "dependencies": {
+    "geotiff": "2.1.3",
+    "pngjs": "7.0.0"
+  }
+}
