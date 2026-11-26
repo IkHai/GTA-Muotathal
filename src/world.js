@@ -677,6 +677,9 @@ function building(b, terrain, colliders, chunkAt, rng, style = {}) {
   // Wände (Steinsockel + Wand)
   const wc = new THREE.Color(wallColor), sc = new THREE.Color(C.stone), win = new THREE.Color(C.window);
   const sockel = Math.min(1.2, wallH * 0.2) + (gMax - gMin);
+  // rund um den Stalden mehr Details: Fensterrahmen, Simse, Sprossen, Blumenkisten, Türen, Kamine
+  const detail = !small && Math.hypot(cx - 1516, cz + 71) < 650;
+  let doorDone = false;
   for (let i = 0; i < pts.length; i++) {
     const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % pts.length];
     quadWall(D.stone, x1, z1, x2, z2, base, gMin + sockel, sc);
@@ -694,6 +697,25 @@ function building(b, terrain, colliders, chunkAt, rng, style = {}) {
           const s0 = (k + 0.5) / n - 0.55 / len, s1 = (k + 0.5) / n + 0.55 / len;
           const px1 = x1 + (x2 - x1) * s0 + nx, pz1 = z1 + (z2 - z1) * s0 + nz, px2 = x1 + (x2 - x1) * s1 + nx, pz2 = z1 + (z2 - z1) * s1 + nz;
           quadWall(D.glass, px1, pz1, px2, pz2, y0, y0 + 1.2, win);
+          if (detail) {
+            const ry = Math.atan2(-(z2 - z1), x2 - x1), wx = (px1 + px2) / 2 + nx * 0.6, wz = (pz1 + pz2) / 2 + nz * 0.6;
+            const fc = isWood ? 0xe8e2d4 : 0xf0ece2, ox = nx * 1.4, oz = nz * 1.4;
+            D.plain.box(wx, y0 + 1.24, wz, 1.3, 0.1, 0.1, fc, ry);                        // Sturz
+            D.plain.box(wx + ox, y0 - 0.05, wz + oz, 1.4, 0.07, 0.22, 0xd8d2c4, ry);        // Sims
+            for (const sd of [-1, 1]) {
+              const tx = (x2 - x1) / len * 0.6 * sd, tz = (z2 - z1) / len * 0.6 * sd;
+              D.plain.box(wx + tx, y0 + 0.6, wz + tz, 0.09, 1.3, 0.1, fc, ry);             // Rahmen
+            }
+            D.plain.box(wx + nx * 0.6, y0 + 0.6, wz + nz * 0.6, 0.05, 1.2, 0.04, fc, ry);  // Sprosse senkrecht
+            D.plain.box(wx + nx * 0.6, y0 + 0.78, wz + nz * 0.6, 1.1, 0.05, 0.04, fc, ry); // Sprosse waagrecht
+            if (isWood && f >= 0 && (k + f) % 2 === 0) {                                     // Geranien
+              D.plain.box(wx + ox * 2.2, y0 + 0.08, wz + oz * 2.2, 1.1, 0.22, 0.22, 0x6a4424, ry);
+              for (let q = 0; q < 6; q++) {
+                const tq = (x2 - x1) / len * (-0.45 + q * 0.18), tqz = (z2 - z1) / len * (-0.45 + q * 0.18);
+                D.plain.box(wx + ox * 2.2 + tq, y0 + 0.27, wz + oz * 2.2 + tqz, 0.16, 0.16, 0.18, q % 3 === 1 ? 0x3a6a2a : (q % 2 ? 0xd02a3a : 0xe0405a), ry + q);
+              }
+            }
+          }
           if (style.shutters ?? (isWood || hash > 0.8)) {
             const sh = new THREE.Color(style.shutterColor ?? C.shutter);
             const w = 0.5 / len;
@@ -703,6 +725,24 @@ function building(b, terrain, colliders, chunkAt, rng, style = {}) {
         }
       }
     }
+  }
+
+  // Haustür an der längsten Wand und ein Kamin
+  if (detail && !doorDone) {
+    let bi = 0, bl = 0;
+    for (let i = 0; i < pts.length; i++) { const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % pts.length]; const l = Math.hypot(x2 - x1, z2 - z1); if (l > bl) { bl = l; bi = i; } }
+    const [x1, z1] = pts[bi], [x2, z2] = pts[(bi + 1) % pts.length];
+    const nx = (z2 - z1) / bl, nz = -(x2 - x1) / bl, ry = Math.atan2(-(z2 - z1), x2 - x1);
+    const t = hash < 0.5 ? 0.22 : 0.78, dx = x1 + (x2 - x1) * t + nx * 0.06, dz = z1 + (z2 - z1) * t + nz * 0.06;
+    const gy = terrain.groundAt(dx + nx * 0.8, dz + nz * 0.8);
+    const dy = Math.max(gMin + sockel * 0.5, gy);
+    D.plain.box(dx, dy + 1.05, dz, 1.1, 2.1, 0.12, isWood ? 0x5a3a20 : 0x6a4a2e, ry);
+    D.plain.box(dx + nx * 0.05, dy + 1.05, dz + nz * 0.05, 0.08, 2.1, 0.1, 0x3a2414, ry);
+    D.plain.box(dx + nx * 0.5, dy + 2.35, dz + nz * 0.5, 1.6, 0.1, 1.0, 0x6a5a4a, ry);   // Vordach
+    if (dy - gy > 0.1) D.plain.box(dx + nx * 0.6, (dy + gy) / 2 - 0.1, dz + nz * 0.6, 1.4, dy - gy + 0.2, 1.0, 0x9a968e, ry);   // Treppenstufe
+    D.plain.box(dx + (x2 - x1) / bl * 0.8 + nx * 0.1, dy + 1.5, dz + (z2 - z1) / bl * 0.8 + nz * 0.1, 0.25, 0.25, 0.05, 0xe8e0c0, ry);  // Lampe
+    if (!isChurch && (style.gable || (pts.length <= 5 && Math.abs(L * W - area) / area < 0.18)) && b.r !== 'flat') D.plain.box(ocx + ax * L * 0.25, top + Math.min(W * 0.42, 6) * 0.6, ocz + az * L * 0.25, 0.6, 2.2, 0.6, 0x7a6e64);  // Kamin
+    doorDone = true;
   }
 
   // Dach
