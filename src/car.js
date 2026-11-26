@@ -242,7 +242,7 @@ function frustum(bw, bl, tw, tl, h, tzOff = 0) {
   return g;
 }
 
-function buildBody(color) {
+export function buildBody(color) {
   const group = new THREE.Group();
   const paint = new Builder(), trim = new Builder(), glass = new Builder(), lights = new Builder();
   const dark = 0x1c1d1f, chrome = 0xa8a8a8;

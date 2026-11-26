@@ -4,7 +4,7 @@ import * as THREE from 'three';
 // Ausserhalb ist es gesperrt, bis Kapitel 1 geschafft ist. Die Grenze sieht man als
 // leuchtenden Vorhang in der Welt und als Linie auf den Karten.
 
-const POLY = [
+export const POLY = [
   [1995, -486], [1533, -457], [1303, -451], [1153, -336], [1061, -244], [1084, -140], [1130, -60],
   [1182, 33], [1222, 79], [1211, 113], [1165, 206], [1159, 275], [1199, 309], [1361, 292],
   [1533, 321], [1706, 390], [1821, 401], [1960, 344], [1995, 280],
