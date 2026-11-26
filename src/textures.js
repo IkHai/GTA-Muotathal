@@ -122,8 +122,8 @@ export const tex = {
   }),
   water: () => cache.water ??= canvas(128, (g, s) => {
     noise(g, s, '#b8c4c8', 60, 2500, 1, 4, 0.3);
-    for (let i = 0; i < 120; i++) {
-      g.strokeStyle = `rgba(255,255,255,${Math.random() * 0.25})`;
+    for (let i = 0; i < 260; i++) {
+      g.strokeStyle = `rgba(255,255,255,${Math.random() * 0.4})`;
       const x = Math.random() * s, y = Math.random() * s;
       g.beginPath(); g.moveTo(x, y); g.lineTo(x + 8 + Math.random() * 14, y); g.stroke();
     }
@@ -144,6 +144,6 @@ export function materials() {
     plain: new THREE.MeshLambertMaterial({ vertexColors: true }),
     glass: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: 0x667788 }),
     tree: lam(tex.needles()),
-    water: new THREE.MeshPhongMaterial({ color: 0x4f7486, map: tex.water(), shininess: 60, specular: 0x8899aa, transparent: true, opacity: 0.86, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    water: new THREE.MeshPhongMaterial({ color: 0x638582, map: tex.water(), shininess: 60, specular: 0x8899aa, transparent: true, opacity: 0.86, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
   };
 }

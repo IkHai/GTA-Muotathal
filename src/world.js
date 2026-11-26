@@ -5,6 +5,7 @@ import { materials } from './textures.js';
 import { Colliders } from './collision.js';
 import { makeRng } from './rng.js';
 import { buildRoadNet, drawRoadNet } from './roads.js';
+import { prepareRivers, drawRivers } from './river.js';
 
 // Kachelgrösse für Gelände und Details. Nur Kacheln in der Nähe werden fein gezeichnet.
 const CHUNK = 500;
@@ -38,7 +39,8 @@ export async function loadWorld(scene, onProgress = () => {}) {
 
 function buildWorld(scene, meta, heights, land, osm, backdrop) {
   const terrain = new Terrain(meta, heights, land);
-  // Strassennetz zuerst: passt das Gelände unter den Strassen an
+  // Muota verbauen und Strassennetz zuerst: beide passen das Gelände an
+  const rivers = prepareRivers(osm.water, terrain);
   const net = buildRoadNet(osm.roads, terrain);
   const colliders = new Colliders();
   const rng = makeRng(4417);
@@ -88,7 +90,9 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
   drawRoadNet(net, terrain, chunkAt, colliders, roadColor);
 
   // ---------- Gewässer ----------
+  const riverSet = new Set(rivers.map((r) => r.w));
   for (const w of osm.water) {
+    if (riverSet.has(w)) continue;
     const pts = toPts(w.p);
     waterRibbon(pts, w.w, terrain, chunkAt);
   }
@@ -107,7 +111,8 @@ function buildWorld(scene, meta, heights, land, osm, backdrop) {
   }
 
   // Rasterkarte aller Strassen (2 m), damit keine Bäume oder Laternen auf der Fahrbahn stehen
-  const onRoad = makeRoadMask(osm.roads, half);
+  const onRoad = makeRoadMask(osm.roads.concat(rivers.map((r) => ({ p: r.w.p, w: r.w.w + 12 }))), half);
+  drawRivers(rivers, terrain, chunkAt, colliders, rng, (x, z, e) => { const h = terrain.roadAt(x, z, e); return h === h; }, osm.roads);
 
   // ---------- Wald ----------
   const res = terrain.res;
