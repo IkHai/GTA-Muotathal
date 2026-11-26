@@ -84,7 +84,7 @@ try {
   loadingEl.textContent = 'Fehler beim Laden der Karte: ' + e.message;
   throw e;
 }
-document.getElementById('credits').textContent = 'Karte: ' + [world.meta.sources.terrain, world.meta.sources.osm].filter(Boolean).join(' · ');
+document.getElementById('credits').textContent = 'Karte: ' + [world.meta.sources.terrain, world.meta.aerial && world.terrain.aerial ? 'Luftbild SWISSIMAGE © swisstopo' : '', world.meta.sources.osm].filter(Boolean).join(' · ');
 const input = new Input();
 const player = new Player(scene, world);
 const cars = world.carSpawns.map((s) => new Car(scene, world, s));
