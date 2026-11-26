@@ -20,7 +20,9 @@ export class Colliders {
   }
 
   addCircle(x, z, r) {
-    this._insert({ type: 0, x, z, r }, x - r, x + r, z - r, z + r);
+    const c = { type: 0, x, z, r };
+    this._insert(c, x - r, x + r, z - r, z + r);
+    return c;
   }
 
   // Achsenparallele Kiste. bottom/top = Höhe unten/oben
@@ -62,6 +64,7 @@ export class Colliders {
   resolve(x, z, r, feetY, stepHeight = 0.35, headroom = 1.8) {
     let hit = false;
     for (const it of this.near(x, z, r + 1)) {
+      if (it.dead) continue;   // z.B. umgefahrene Laterne
       if (it.type === 0) {
         const dx = x - it.x, dz = z - it.z;
         const min = r + it.r;
