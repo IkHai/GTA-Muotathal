@@ -4,7 +4,11 @@
 export class Minimap {
   constructor(canvas, world) {
     this.canvas = canvas;
+    // doppelte Auflösung, damit die runde Karte auf dem Handy scharf ist (gezeichnet wird in 140er-Einheiten)
+    this.size = canvas.width;
+    canvas.width = canvas.height = this.size * 2;
     this.ctx = canvas.getContext('2d');
+    this.ctx.scale(2, 2);
     this.timer = 0;
     this.half = world.half;
     const size = 800;                 // 1 Pixel = 5 m
@@ -36,7 +40,7 @@ export class Minimap {
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = 0.1;
-    const ctx = this.ctx, w = this.canvas.width, c = w / 2;
+    const ctx = this.ctx, w = this.size, c = w / 2;
     if (this.indoor) return this.drawIndoor(pos, heading, camYaw);
     const zoom = 1.2;
     ctx.save();
@@ -74,7 +78,7 @@ export class Minimap {
 
   // Spielerpfeil und Norden
   drawArrow(heading, camYaw) {
-    const ctx = this.ctx, c = this.canvas.width / 2;
+    const ctx = this.ctx, c = this.size / 2;
     ctx.save();
     ctx.translate(c, c);
     ctx.rotate(camYaw - heading);
@@ -92,7 +96,7 @@ export class Minimap {
 
   // Im Haus: Grundriss des Stockwerks, in dem man steht
   drawIndoor(pos, heading, camYaw) {
-    const ctx = this.ctx, w = this.canvas.width, c = w / 2;
+    const ctx = this.ctx, w = this.size, c = w / 2;
     const S = w / 15;                  // etwa 7 m Radius
     const feet = pos.y, rot = Math.PI + camYaw;
     ctx.save();
@@ -199,7 +203,7 @@ function drawVectors(g, v, k, px, view, rad) {
     g.strokeStyle = '#5b9fd0'; g.lineWidth = Math.max(w.w, 1.4 * px * k); g.stroke(w.P);
   }
   // Häuser, sobald sie gross genug sind
-  if (k < 3) {
+  if (k < 5) {
     g.fillStyle = '#d3c2a4'; g.strokeStyle = '#7d6b52'; g.lineWidth = Math.min(0.7, 1.2 * px * k);
     for (const b of v.buildings) {
       if (view && (b.bb[2] < view.x - rad || b.bb[0] > view.x + rad || b.bb[3] < view.z - rad || b.bb[1] > view.z + rad)) continue;
