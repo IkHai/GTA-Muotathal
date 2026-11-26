@@ -59,7 +59,7 @@ async function fetchRetry(url, opts = {}, tries = 4) {
       err = new Error(`${r.status} ${r.statusText} für ${url}`);
       if (r.status === 400) break;
     } catch (e) { err = e; }
-    await new Promise((res) => setTimeout(res, 3000 * (i + 1)));
+    await new Promise((res) => setTimeout(res, 8000 * (i + 1)));
   }
   throw err;
 }
@@ -210,7 +210,7 @@ out geom;`;
   let err;
   for (const url of OVERPASS) {
     try {
-      const r = await fetchRetry(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }, 2);
+      const r = await fetchRetry(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json, */*', 'User-Agent': 'MuotathalGame-geodata/1.0 (+https://github.com/IkHai/GTA-Muotathal)' } }, 3);
       const j = await r.json();
       log(`OSM: ${j.elements.length} Elemente von ${url}`);
       return j.elements;
