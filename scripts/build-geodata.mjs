@@ -190,33 +190,37 @@ const OVERPASS = [
   'https://overpass.private.coffee/api/interpreter',
 ];
 
-async function fetchOsm() {
-  const b = `${BBOX.south},${BBOX.west},${BBOX.north},${BBOX.east}`;
-  const q = `[out:json][timeout:240];
-(
-  way["highway"](${b});
-  way["building"](${b});
-  way["waterway"](${b});
-  way["natural"~"^(water|wood|scree|bare_rock|shingle|cliff)$"](${b});
-  relation["natural"~"^(water|wood|scree|bare_rock)$"](${b});
-  way["landuse"~"^(forest|residential|industrial|commercial|quarry)$"](${b});
-  relation["landuse"~"^(forest|residential)$"](${b});
-  way["railway"](${b});
-  way["aerialway"](${b});
-  node["place"](${b});
-  node["natural"="peak"](${b});
-);
-out geom;`;
+async function overpass(q) {
   let err;
   for (const url of OVERPASS) {
     try {
       const r = await fetchRetry(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json, */*', 'User-Agent': 'MuotathalGame-geodata/1.0 (+https://github.com/IkHai/GTA-Muotathal)' } }, 3);
       const j = await r.json();
-      log(`OSM: ${j.elements.length} Elemente von ${url}`);
+      if (j.remark) throw new Error('Overpass-Hinweis: ' + j.remark);
       return j.elements;
     } catch (e) { err = e; log('Overpass-Fehler', url, e.message); }
   }
   throw err;
+}
+
+async function fetchOsm() {
+  const b = `${BBOX.south},${BBOX.west},${BBOX.north},${BBOX.east}`;
+  const head = '[out:json][timeout:300][maxsize:536870912];';
+  // in mehreren kleinen Abfragen, damit nichts abgeschnitten wird
+  const parts = {
+    Strassen: `way["highway"](${b});way["railway"](${b});way["aerialway"](${b});`,
+    Gebaeude: `way["building"](${b});`,
+    Gewaesser: `way["waterway"](${b});node["place"](${b});node["natural"="peak"](${b});`,
+    Flaechen: `way["natural"~"^(water|wood|scree|bare_rock|shingle)$"](${b});relation["natural"~"^(water|wood|scree|bare_rock)$"](${b});way["landuse"~"^(forest|residential|industrial|commercial|quarry)$"](${b});relation["landuse"~"^(forest|residential)$"](${b});`,
+  };
+  const all = [];
+  for (const [name, body] of Object.entries(parts)) {
+    const els = await overpass(`${head}(${body});out geom;`);
+    log(`OSM ${name}: ${els.length} Elemente`);
+    all.push(...els);
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return all;
 }
 
 // Ways einer Multipolygon-Relation zu geschlossenen Ringen verbinden
@@ -374,6 +378,7 @@ async function main() {
     osmOk = true;
   }
   const { land, ...features } = osm;
+  if (osmOk && features.buildings.length === 0) throw new Error('Keine Gebäude in den OSM-Daten gefunden');
 
   await fs.writeFile(path.join(OUT, 'terrain.bin'), Buffer.from(heights.buffer));
   await fs.writeFile(path.join(OUT, 'landcover.bin'), Buffer.from(land.buffer));
