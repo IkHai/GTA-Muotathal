@@ -7,7 +7,7 @@ import { Builder } from './builder.js';
 
 // ---------- Texturen ----------
 const cache = {};
-function canvasTex(key, w, h, draw, repeat = false) {
+export function canvasTex(key, w, h, draw, repeat = false) {
   if (cache[key]) return cache[key];
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   draw(c.getContext('2d'), w, h);
@@ -18,7 +18,7 @@ function canvasTex(key, w, h, draw, repeat = false) {
   return (cache[key] = t);
 }
 
-function rnd(seed) {
+export function rnd(seed) {
   let a = seed | 0;
   return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
@@ -33,12 +33,15 @@ export function plasterTex(base, key) {
       g.fillStyle = v < 0.5 ? `rgba(0,0,0,${0.03 + r() * 0.05})` : `rgba(255,255,255,${0.03 + r() * 0.05})`;
       g.fillRect(r() * w, r() * h, 2 + r() * 6, 2 + r() * 6);
     }
-    // Laufspuren von oben
-    for (let i = 0; i < 26; i++) {
-      const x = r() * w, len = 60 + r() * 260;
-      const grad = g.createLinearGradient(0, 0, 0, len);
-      grad.addColorStop(0, 'rgba(40,34,28,.28)'); grad.addColorStop(1, 'rgba(40,34,28,0)');
-      g.fillStyle = grad; g.fillRect(x, 0, 4 + r() * 14, len);
+    // Laufspuren: beginnen weich und laufen weich aus, nahtlos über den Kachelrand
+    for (let i = 0; i < 18; i++) {
+      const x = r() * w, y0 = r() * h, len = 80 + r() * 220, sw = 4 + r() * 12;
+      for (const oy of [0, -h]) {
+        const grad = g.createLinearGradient(0, y0 + oy, 0, y0 + oy + len);
+        grad.addColorStop(0, 'rgba(40,34,28,0)'); grad.addColorStop(0.25, 'rgba(40,34,28,.14)'); grad.addColorStop(1, 'rgba(40,34,28,0)');
+        g.fillStyle = grad;
+        for (const ox of [0, -w]) g.fillRect(x + ox, y0 + oy, sw, len);
+      }
     }
     // grosse Schmutzflecken
     for (let i = 0; i < 10; i++) {
@@ -48,8 +51,8 @@ export function plasterTex(base, key) {
       g.fillStyle = grad; g.fillRect(x - s, y - s, s * 2, s * 2);
     }
     // abgeplatzt: Backstein sichtbar
-    for (let i = 0; i < 3; i++) {
-      const x = r() * w, y = r() * h, pw = 30 + r() * 70, ph = 20 + r() * 50;
+    for (let i = 0; i < 1; i++) {
+      const x = 0.2 * w + r() * 0.6 * w, y = 0.2 * h + r() * 0.6 * h, pw = 30 + r() * 50, ph = 20 + r() * 36;
       g.save();
       g.beginPath();
       for (let k = 0; k < 9; k++) {
@@ -70,7 +73,7 @@ export function plasterTex(base, key) {
   }, true);
 }
 
-function roofTex() {
+export function roofTex() {
   return canvasTex('rooftiles', 256, 256, (g, w, h) => {
     const r = rnd(99);
     g.fillStyle = '#3e2a22'; g.fillRect(0, 0, w, h);
@@ -132,7 +135,7 @@ export function plainTex(text, bg, fg) {
 // ---------- Hilfen ----------
 // Rechteck (aus OSM) mit Vorderseite zur Strasse. Lokales System: x entlang der Front,
 // z von der Front ins Haus hinein, y nach oben ab gMin.
-function frameFromFootprint(pts, terrain) {
+export function frameFromFootprint(pts, terrain) {
   let cx = 0, cz = 0;
   for (const [x, z] of pts) { cx += x; cz += z; }
   cx /= pts.length; cz /= pts.length;
@@ -191,11 +194,11 @@ function frameFromFootprint(pts, terrain) {
 }
 
 // Fläche mit Textur. Punkte lokal (x, y, z), Reihenfolge gegen den Uhrzeiger von aussen
-function quad(pos, uv, a, b, c, d, uvs) {
+export function quad(pos, uv, a, b, c, d, uvs) {
   pos.push(...a, ...b, ...c, ...a, ...c, ...d);
   uv.push(...uvs[0], ...uvs[1], ...uvs[2], ...uvs[0], ...uvs[2], ...uvs[3]);
 }
-function texMesh(pos, uv, mat) {
+export function texMesh(pos, uv, mat) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
@@ -206,7 +209,7 @@ function texMesh(pos, uv, mat) {
 }
 
 // Dachflächen: Oberseite einseitig (sonst wirft sie Schatten auf sich selbst), Unterseite dunkel
-function roofMeshes(group, rp, ru, color, tex) {
+export function roofMeshes(group, rp, ru, color, tex) {
   const top = texMesh(rp, ru, new THREE.MeshLambertMaterial({ map: tex === undefined ? roofTex() : tex, color }));
   top.receiveShadow = false;
   group.add(top);
@@ -219,7 +222,7 @@ function roofMeshes(group, rp, ru, color, tex) {
 }
 
 // Kasten-Wände (ohne Dach) als Textur-Flächen; s = Meter pro Texturkachel
-function boxWalls(pos, uv, W, D, y0, y1, s) {
+export function boxWalls(pos, uv, W, D, y0, y1, s) {
   const hw = W / 2;
   const P = [[-hw, 0], [hw, 0], [hw, D], [-hw, D]];   // Front, rechts, hinten, links (von oben im Uhrzeiger)
   let u = 0;
@@ -233,7 +236,7 @@ function boxWalls(pos, uv, W, D, y0, y1, s) {
 }
 
 // Fenster an einer Seite. side: 'f' vorne, 'b' hinten, 'l' links, 'r' rechts; t = Position entlang der Seite
-function windowAt(B, side, t, y, W, D, opt = {}) {
+export function windowAt(B, side, t, y, W, D, opt = {}) {
   const w = opt.w ?? 1.15, h = opt.h ?? 1.45;
   const hw = W / 2;
   let x, z, nx, nz, ry;
@@ -371,7 +374,7 @@ function groundLocal(F, terrain, x, z, hx = 0.4, hz = 0.4) {
   return Math.min(0, g);
 }
 
-function frontSteps(B, walk, F, terrain, x, topY, width, zStart) {
+export function frontSteps(B, walk, F, terrain, x, topY, width, zStart) {
   const [gx, gz] = F.toWorld(x, zStart - 1.5);
   const g = terrain.heightAt(gx, gz) - F.gMin;
   if (topY - g < 0.1) return zStart;
@@ -504,12 +507,12 @@ export function buildClub(pts, ctx) {
     B.shape(new THREE.CylinderGeometry(0.05, 0.07, 1.0, 6), px, 1.0, -0.45, 1, 1, 1, 0x4a3a20);
     for (let k = 0; k < 6; k++) B.shape(new THREE.BoxGeometry(0.9, 0.03, 0.22), px + Math.cos(k) * 0.32, 1.45, -0.45 + Math.sin(k) * 0.32, 1, 1, 1, 0x2e5a2a, k * 1.05, 0, -0.5);
   }
-  B.box(dx, 0.0, -1.6, 1.8, 0.03, 3.0, 0x8a1424);                                         // Teppich
-  for (const s of [-1, 1]) for (const z of [-1.1, -2.9]) {
+  B.box(dx, 0.0, -0.8, 1.8, 0.03, 1.5, 0x8a1424);                                         // Teppich
+  for (const s of [-1, 1]) for (const z of [-0.55, -1.45]) {
     B.box(dx + s * 1.2, 0.45, z, 0.07, 0.9, 0.07, 0xd4af37);
     B.box(dx + s * 1.2, 0.93, z, 0.14, 0.06, 0.14, 0xd4af37);
   }
-  for (const s of [-1, 1]) B.shape(new THREE.BoxGeometry(0.05, 0.05, 1.8), dx + s * 1.2, 0.72, -2.0, 1, 1, 1, 0x9a1020);
+  for (const s of [-1, 1]) B.shape(new THREE.BoxGeometry(0.05, 0.05, 0.9), dx + s * 1.2, 0.72, -1.0, 1, 1, 1, 0x9a1020);
 
   // Aussentreppe links (lokal +x) hinauf zur Holztür im 1. OG
   const SY = G1 / 2;                                    // Zwischenpodest des Treppenhauses
@@ -526,15 +529,15 @@ export function buildClub(pts, ctx) {
   walk.push([sx, zl + landD / 2, sw / 2, landD / 2, SY]);
   frontSteps(B, walk, F, terrain, sx, 0, sw, z0);                       // falls der Boden dort tiefer liegt
   // Eingang: Podest mit Teppich, falls die Strasse tiefer liegt, und Stufen hinunter
-  let clubFoot = -2.6;
+  let clubFoot = -2.0;
   {
-    const [gx, gz] = F.toWorld(dx, -2.0);
+    const [gx, gz] = F.toWorld(dx, -1.0);
     const g = terrain.heightAt(gx, gz) - F.gMin;
     if (g < -0.1) {
-      B.box(dx, (g - 0.4) / 2 - 0.02, -1.7, 3.4, -(g - 0.4), 3.2, 0x8e8a84);
-      for (const sd of [-1, 1]) B.box(dx + sd * 1.75, (g - 0.4) / 2 + 0.05, -1.7, 0.12, -(g - 0.4) + 0.14, 3.2, 0x6a6660);
-      walk.push([dx, -1.7, 1.7, 1.6, 0]);
-      clubFoot = frontSteps(B, walk, F, terrain, dx, -0.17, 2.4, -3.3) - 0.6;
+      B.box(dx, (g - 0.4) / 2 - 0.02, -0.85, 3.4, -(g - 0.4), 1.7, 0x8e8a84);
+      for (const sd of [-1, 1]) B.box(dx + sd * 1.75, (g - 0.4) / 2 + 0.05, -0.85, 0.12, -(g - 0.4) + 0.14, 1.7, 0x6a6660);
+      walk.push([dx, -0.85, 1.7, 0.85, 0]);
+      clubFoot = frontSteps(B, walk, F, terrain, dx, -0.17, 2.4, -1.7) - 0.6;
     }
   }
   // Geländer
@@ -550,7 +553,9 @@ export function buildClub(pts, ctx) {
   B.box(hw + 0.08, SY + 2.3, doorZ, 0.12, 0.12, 1.25, 0x3a2416);
   // Mülltonnen neben der Treppe, Klimagerät hinten
   for (const [z, c] of [[-0.6, 0x3a4a3e], [-1.6, 0x2e3a34], [0.4, 0x2a2e30]]) {
-    const g = groundLocal(F, terrain, sx + 1.6, z) - 0.05;
+    const [bwx, bwz] = F.toWorld(sx + 1.6, z);
+    const g = terrain.heightAt(bwx, bwz) - F.gMin;
+    B.box(sx + 1.6, g - 0.2, z, 0.8, 0.4, 0.9, 0x2a2e2c);
     B.box(sx + 1.6, g + 0.6, z, 0.75, 1.2, 0.85, c);
     B.box(sx + 1.6, g + 1.24, z - 0.05, 0.8, 0.08, 0.95, 0x1e2422);
     for (const ox of [-0.25, 0.25]) B.shape(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 8), sx + 1.6 + ox, g + 0.07, z + 0.4, 1, 1, 1, 0x111111, 0, 0, Math.PI / 2);
@@ -609,18 +614,44 @@ export function buildClub(pts, ctx) {
   const [ux, uz] = F.toWorld(sx, doorZ);
   const [nx, nz] = F.toWorld(dx, -0.9);
   const result = { id: 'club', name: "Hell's Club", door: { x: ex, z: ez }, entry: { x: nx, z: nz, y: oy }, upperDoor: { x: ux, z: uz, y: oy + SY }, x: F.ox, z: F.oz, heading: F.rotY };
-  // Parkplatz hinter dem Haus
-  const [px, pz] = F.toWorld(0, D + 9);
-  const pg = terrain.heightAt(px, pz);
-  if (Math.abs(pg - F.gMin) < 3 && terrain.roadAt(px, pz, 1) !== terrain.roadAt(px, pz, 1)) {
+  // Parkplatz seitlich neben dem Club (wo Platz ist), Stellplätze quer zur Hauswand
+  const lotW = 6.5, lotL = 13;
+  const free = (lx, lz) => {
+    for (const [ox, oz] of [[0, 0], [-lotW / 2, -lotL / 2], [lotW / 2, -lotL / 2], [-lotW / 2, lotL / 2], [lotW / 2, lotL / 2], [0, -lotL / 2], [0, lotL / 2]]) {
+      const [wx, wz] = F.toWorld(lx + ox, lz + oz);
+      if (terrain.roadAt(wx, wz, 0.8) === terrain.roadAt(wx, wz, 0.8)) return false;
+      if (colliders.resolve(wx, wz, 0.4, F.gMin + 0.3).hit) return false;
+      if (Math.abs(terrain.heightAt(wx, wz) - F.gMin) > 2.5) return false;
+    }
+    return true;
+  };
+  let lot = null;
+  for (const [lx, lz] of [[-hw - lotW / 2 - 1.2, D * 0.5], [-hw - lotW / 2 - 1.2, D * 0.65], [sx + 3.6 + lotW / 2, D * 0.5], [-hw - lotW / 2 - 2.5, D * 0.4], [sx + 4.5 + lotW / 2, D * 0.7]]) {
+    if (free(lx, lz)) { lot = [lx, lz]; break; }
+  }
+  if (lot) {
+    const [lx, lz] = lot;
+    const [px, pz] = F.toWorld(lx, lz);
+    let lowest = Infinity, highest = -Infinity;
+    for (const [ox, oz] of [[-lotW / 2, -lotL / 2], [lotW / 2, -lotL / 2], [-lotW / 2, lotL / 2], [lotW / 2, lotL / 2], [0, 0]]) {
+      const [wx, wz] = F.toWorld(lx + ox, lz + oz);
+      const h = terrain.heightAt(wx, wz); lowest = Math.min(lowest, h); highest = Math.max(highest, h);
+    }
+    const top = highest + 0.06, depth = top - lowest + 0.3;
     const P = new Builder();
-    P.box(0, 0, 0, 12, 0.08, 6, 0x3b3c3e);
-    for (let k = -2; k <= 2; k++) P.box(k * 2.6, 0.05, 0, 0.12, 0.02, 5, 0xe8e8e8);
+    P.box(0, -depth / 2 + 0.02, 0, lotW, depth, lotL, 0x3b3c3e);                         // Belag, bis in den Boden
+    P.box(0, -depth / 2 - 0.02, 0, lotW + 0.3, depth, lotL + 0.3, 0x8a867e);            // Randstein
+    for (let k = -2; k <= 2; k++) P.box(0.4, 0.035, k * 2.6, lotW - 1.4, 0.02, 0.12, 0xe8e8e8);
+    P.box(lotW / 2 - 0.3, 0.035, 0, 0.12, 0.02, lotL - 0.6, 0xe8e8e8);
     const pm = P.build(new THREE.MeshLambertMaterial({ vertexColors: true }));
     pm.receiveShadow = true;
-    pm.position.set(px, pg + 0.04, pz); pm.rotation.y = F.rotY;
+    pm.position.set(px, top, pz); pm.rotation.y = F.rotY;
     (chunkAt(px, pz).extra ||= []).push(pm);
-    result.parking = { x: px, z: pz, heading: F.rotY + Math.PI };
+    const walkBox = colliders.addOrientedBox(px, pz, Math.cos(F.rotY), -Math.sin(F.rotY), lotW / 2 + 0.15, lotL / 2 + 0.15, top - depth, top + 0.04);
+    walkBox.walk = true;
+    // Auto parkt quer zur Wand, Front zum Haus
+    const side = lx < 0 ? 1 : -1;
+    result.parking = { x: px, z: pz, heading: F.rotY + (side > 0 ? Math.PI / 2 : -Math.PI / 2) };
   }
   return { result, info: { x: F.ox, z: F.oz, pts, church: false } };
 }
@@ -705,7 +736,8 @@ export function buildBlock(pts, ctx) {
   for (const s of [-1, 1]) B.box(s * (W / 2 - 0.12), H / 2, -0.12, 0.12, H + 1.5, 0.12, 0x5a5a58);
   B.shape(new THREE.SphereGeometry(0.45, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), W / 2 - 2, G0 + 3 * FH + 1.6, -0.35, 1, 1, 0.35, 0xd8d8d0, 0, Math.PI / 2);
   for (let k = 0; k < 3; k++) {
-    const bx = ex + 2.6 + k * 0.75, g = groundLocal(F, terrain, bx, -0.6, 0.3, 0.35) - 0.05;
+    const bx = ex + 2.6 + k * 0.75, [bwx, bwz] = F.toWorld(bx, -0.6), g = terrain.heightAt(bwx, bwz) - F.gMin;
+    B.box(bx, g - 0.2, -0.6, 0.64, 0.4, 0.74, 0x2a2e2c);
     B.box(bx, g + 0.55, -0.6, 0.6, 1.1, 0.7, k % 2 ? 0x3a4a3a : 0x4a4e52);
     B.box(bx, g + 1.13, -0.63, 0.64, 0.06, 0.78, 0x22282a);
   }

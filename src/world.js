@@ -8,6 +8,7 @@ import { buildRoadNet, drawRoadNet } from './roads.js';
 import { prepareRivers, drawRivers, installRiverGround, carveRiverBed } from './river.js';
 import { findLandmark, decorateLandmark } from './landmarks.js';
 import { buildClub, buildBlock } from './handmade.js';
+import { buildHaus, buildShop, buildImbiss } from './shops.js';
 
 // Kachelgrösse für Gelände und Details. Nur Kacheln in der Nähe werden fein gezeichnet.
 const CHUNK = 500;
@@ -76,6 +77,8 @@ async function loadAerial(url, size) {
 function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
   const terrain = new Terrain(meta, heights, land);
   terrain.aerial = aerial;
+  // Stalden: Dorfboden glätten, damit Strassen, Plätze und Hauseingänge eben zusammenpassen
+  terrain.smoothArea(1516, -71, 170, 300, 10);
   // Muota verbauen und Strassennetz zuerst: beide passen das Gelände an
   const rivers = prepareRivers(osm.water, terrain);
   const net = buildRoadNet(osm.roads, terrain);
@@ -148,7 +151,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
       let area = 0;
       for (let i = 0; i < pts.length; i++) { const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % pts.length]; area += x1 * z2 - x2 * z1; }
       if (area < 0) pts = pts.reverse();
-      const r = (lm.custom === 'club' ? buildClub : buildBlock)(pts, { terrain, chunkAt, colliders });
+      const r = ({ club: buildClub, block: buildBlock, haus: buildHaus, shop: buildShop, imbiss: buildImbiss })[lm.custom](pts, { terrain, chunkAt, colliders });
       houses.push(r.info);
       landmarks[lm.id] = r.result;
       continue;
@@ -207,8 +210,14 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
       const near = osm.buildings.length && houseNear(x, z, buildingIndex, 45);
       if (!near) continue;
       const dx = nx2 - x, dz = nz2 - z, l = Math.hypot(dx, dz) || 1;
-      const side = (i % 2 ? 1 : -1) * (r.w / 2 + 0.9);
-      const lx = x - dz / l * side, lz = z + dx / l * side;
+      // auf den Gehweg (äusserer Teil); im Dorf ohne Gehweg an dieser Stelle keine Laterne
+      const sg = i % 2 ? 1 : -1;
+      let side = sg * (r.w / 2 + 1.55);
+      let lx = x - dz / l * side, lz = z + dx / l * side;
+      if (!(terrain.walkAt && terrain.walkAt(lx, lz) === terrain.walkAt(lx, lz))) {
+        if (terrain.landAt(lx, lz) === 4) continue;
+        side = sg * (r.w / 2 + 0.9); lx = x - dz / l * side; lz = z + dx / l * side;
+      }
       const ax = dz / l * Math.sign(side), az = -dx / l * Math.sign(side);
       const lamp = { x: lx, z: lz, g: terrain.heightAt(lx, lz), rot: Math.atan2(-az, ax), fallen: false, a: 0, w: 0, fx: 0, fz: 0 };
       if (!onRoad(lx, lz, 0.3)) lamp.collider = colliders.addCircle(lx, lz, 0.15);

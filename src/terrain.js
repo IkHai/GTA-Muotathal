@@ -20,6 +20,31 @@ export class Terrain {
     return this.heights[j * n + i];
   }
 
+  // Gelände in einem Kreis stark glätten (für ein ebenes, ordentliches Dorf).
+  // Innerhalb r0 voll geglättet, bis r1 weich zurück zum Original.
+  smoothArea(cx, cz, r0, r1, passes = 8) {
+    const n = this.n, res = this.res, half = this.half, H = this.heights;
+    const i0 = Math.max(1, Math.floor((cx - r1 - half * 0 + half) / res) - 3), i1 = Math.min(n - 2, Math.ceil((cx + r1 + half) / res) + 3);
+    const j0 = Math.max(1, Math.floor((cz - r1 + half) / res) - 3), j1 = Math.min(n - 2, Math.ceil((cz + r1 + half) / res) + 3);
+    const orig = new Float32Array(H);
+    let cur = new Float32Array(H);
+    for (let p = 0; p < passes; p++) {
+      const nxt = new Float32Array(cur);
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        let s = 0;
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) s += cur[(j + dj) * n + i + di];
+        nxt[j * n + i] = s / 9;
+      }
+      cur = nxt;
+    }
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const d = Math.hypot(-half + i * res - cx, -half + j * res - cz);
+      const w = d <= r0 ? 1 : d >= r1 ? 0 : 0.5 + 0.5 * Math.cos(Math.PI * (d - r0) / (r1 - r0));
+      const k = j * n + i;
+      H[k] = orig[k] * (1 - w) + cur[k] * w;
+    }
+  }
+
   landAt(x, z) {
     const i = Math.round((x + this.half) / this.res), j = Math.round((z + this.half) / this.res);
     if (i < 0 || j < 0 || i >= this.n || j >= this.n) return 0;

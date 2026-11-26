@@ -8,9 +8,10 @@ export const LANDMARKS = [
     style: { wall: 0xd6c27a, wallH: 9.8, wood: false, shutters: true, shutterColor: 0x2e5b3e, roof: 0x6a4a3a, gable: true } },
   { id: 'home', name: 'Wohnblock', x: 1541.3, z: -61.7, custom: 'block',
     style: { wall: 0x9c988b, wallH: 11.6, wood: false, shutters: false, roof: 0x5f5c57 } },
-  { id: 'imbiss', name: 'Stalden One', x: 1483.2, z: -75.6,
+  { id: 'haus', name: 'Wohnhaus', x: 1497.7, z: -76.8, custom: 'haus' },
+  { id: 'imbiss', name: 'Stalden One', x: 1483.2, z: -75.6, custom: 'imbiss',
     style: { wall: 0xece6d6, wallH: 3.9, wood: false, shutters: false, roof: 0x7d3328 } },
-  { id: 'shop', name: 'Mode Muota', x: 1401.8, z: -41.3,
+  { id: 'shop', name: 'Mode Muota', x: 1401.8, z: -41.3, custom: 'shop',
     style: { wall: 0xdcd4c4, wallH: 6.6, wood: false, shutters: false, roof: 0x55565a } },
 ];
 

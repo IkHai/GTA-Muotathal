@@ -136,10 +136,12 @@ export function buildRoadNet(roads, terrain) {
       if (d > 12) continue;
       const rh = s.h1 + (s.h2 - s.h1) * t;
       const k = j * n + i;
-      const maxH = rh - 0.25 + d * 0.8;      // Böschung bergseits
+      // im Dorf flach an die Strasse anschliessen (keine Inseln und Gräben zwischen Strassen)
+      const town = terrain.land[k] === 4;
+      const maxH = town ? rh - 0.12 + d * 0.22 : rh - 0.25 + d * 0.8;      // Böschung bergseits
       if (H[k] > maxH) H[k] = maxH;
-      if (d < 4) {
-        const minH = rh - 0.25 - d * 0.7;    // Damm talseits
+      if (d < (town ? 8 : 4)) {
+        const minH = town ? rh - 0.12 - d * 0.22 : rh - 0.25 - d * 0.7;    // Damm talseits
         if (H[k] < minH) H[k] = minH;
       }
     }
@@ -195,10 +197,63 @@ function quad(b, color, A, B, Cc, D) { push(b, color, A, B, Cc, A, Cc, D); }    
 function quad2(b, color, A, B, Cc, D) { quad(b, color, A, B, Cc, D); quad(b, color, A, D, Cc, B); }
 
 export function drawRoadNet(net, terrain, chunkAt, colliders, colors) {
+  // Gehwege merken: sie zählen danach für terrain.heightAt (man läuft darauf statt hindurch)
+  const walks = new Map(), WB = 8;
+  const addWalk = (s) => {
+    const m = s.wo + 1;
+    for (let a = Math.floor((Math.min(s.x1, s.x2) - m) / WB); a <= Math.floor((Math.max(s.x1, s.x2) + m) / WB); a++)
+      for (let b = Math.floor((Math.min(s.z1, s.z2) - m) / WB); b <= Math.floor((Math.max(s.z1, s.z2) + m) / WB); b++) {
+        const k = a * 100003 + b;
+        if (!walks.has(k)) walks.set(k, []);
+        walks.get(k).push(s);
+      }
+  };
+  const walkAt = (x, z) => {
+    const l = walks.get(Math.floor(x / WB) * 100003 + Math.floor(z / WB));
+    if (!l) return NaN;
+    for (const s of l) {
+      const L2 = (s.x2 - s.x1) ** 2 + (s.z2 - s.z1) ** 2 || 1e-6;
+      const t = ((x - s.x1) * (s.x2 - s.x1) + (z - s.z1) * (s.z2 - s.z1)) / L2;
+      if (t < 0 || t > 1) continue;
+      const px = s.x1 + (s.x2 - s.x1) * t, pz = s.z1 + (s.z2 - s.z1) * t;
+      // Seite: Gehweg liegt auf der Seite sgn der Normalen
+      const o = ((x - px) * s.nx + (z - pz) * s.nz) * s.sgn;
+      if (o >= s.hw - 0.02 && o <= s.wo + 0.02) return s.ya + (s.yb - s.ya) * t;
+    }
+    return NaN;
+  };
+  terrain.walkAt = walkAt;
   for (const w of net.ways) {
     const { pts, h, hw, r } = w;
     const color = colors(r.t);
     const lift = w.bridge ? 0.02 : w.main ? 0.07 : 0.05;
+    // Gehweg-Eignung je Seite und Stück; nur zusammenhängende Stücke (mind. 3) werden gebaut
+    const walkOK = { 1: [], '-1': [] };
+    const hasWalk = !w.bridge && hw >= 2 && (w.main || r.t === 'residential' || r.t === 'living_street');
+    for (let i = 0; i < pts.length - 1 && hasWalk; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
+      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1;
+      const nx = -dz / len, nz = dx / len;
+      for (const sgn of [1, -1]) {
+        const mx = (ax + bx) / 2 + nx * (hw + 0.9) * sgn, mz = (az + bz) / 2 + nz * (hw + 0.9) * sgn;
+        let ok = terrain.landAt(mx, mz) === 4;
+        if (ok) { const o = net.roadAt(mx, mz, 0.4); ok = o !== o; }
+        if (ok) {
+          const ea = net.roadAt(ax + nx * (hw + 1.9) * sgn, az + nz * (hw + 1.9) * sgn, 0.6), eb = net.roadAt(bx + nx * (hw + 1.9) * sgn, bz + nz * (hw + 1.9) * sgn, 0.6);
+          ok = ea !== ea && eb !== eb;
+        }
+        if (ok) ok = terrain.groundAt(mx, mz) - (h[i] + h[i + 1]) / 2 - lift <= 0.5;
+        walkOK[sgn][i] = ok;
+      }
+    }
+    const runOK = (sgn, i) => {
+      const a = walkOK[sgn];
+      if (!a[i]) return false;
+      let lo = i, hi = i;
+      while (lo > 0 && a[lo - 1]) lo--;
+      while (hi < a.length - 1 && a[hi + 1]) hi++;
+      return hi - lo + 1 >= 3;
+    };
     for (let i = 0; i < pts.length - 1; i++) {
       const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
       const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1;
@@ -221,16 +276,12 @@ export function drawRoadNet(net, terrain, chunkAt, colliders, colors) {
         }
       }
       // Trottoir mit Randstein im Dorf (Landnutzung „Siedlung“), nicht über Kreuzungen
-      if (!w.bridge && hw >= 2 && (w.main || r.t === 'residential' || r.t === 'living_street')) {
+      if (hasWalk) {
         for (const sgn of [1, -1]) {
-          const mx = (ax + bx) / 2 + nx * (hw + 0.9) * sgn, mz = (az + bz) / 2 + nz * (hw + 0.9) * sgn;
-          if (terrain.landAt(mx, mz) !== 4) continue;
-          const other = net.roadAt(mx, mz, 0.4);
-          if (other === other) continue;
-          const g = terrain.groundAt(mx, mz), ym = (ya + yb) / 2;
-          if (g - ym > 0.5) continue;                     // Hang: kein Platz
+          if (!runOK(sgn, i)) continue;
           const P = (x, z, o, y) => [x + nx * o * sgn, y, z + nz * o * sgn];
           const ca = ya + 0.13, cb = yb + 0.13, wo = hw + 1.9;
+          addWalk({ x1: ax, z1: az, x2: bx, z2: bz, nx, nz, sgn, hw, wo, ya: ca, yb: cb });
           // Randstein: Kante und Oberseite
           const s1 = sgn > 0 ? [P(ax, az, hw, ya), P(bx, bz, hw, yb), P(bx, bz, hw, cb), P(ax, az, hw, ca)] : [P(bx, bz, hw, yb), P(ax, az, hw, ya), P(ax, az, hw, ca), P(bx, bz, hw, cb)];
           push(ch.roads, 0xb4b0a6, s1[0], s1[1], s1[2], s1[0], s1[2], s1[3]);
@@ -285,6 +336,11 @@ export function drawRoadNet(net, terrain, chunkAt, colliders, colors) {
       }
     }
   }
+  const base = terrain.heightAt;
+  terrain.heightAt = (x, z, refY) => {
+    const wk = walkAt(x, z);
+    return wk === wk ? Math.max(wk, base(x, z, refY)) : base(x, z, refY);
+  };
 }
 
 // Viereck, dessen Vorderseite nach oben zeigt

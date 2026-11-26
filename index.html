@@ -19,7 +19,7 @@
     const css = document.createElement('link');
     css.rel = 'stylesheet'; css.href = 'style.css?v=' + v;
     document.head.appendChild(css);
-    const files = ['main', 'world', 'input', 'player', 'car', 'camera', 'minimap', 'terrain', 'builder', 'collision', 'rng', 'shadow', 'textures', 'traffic', 'roads', 'river', 'story', 'landmarks', 'handmade', 'interiors', 'profiles', 'grass', 'zone', 'props'];
+    const files = ['main', 'world', 'input', 'player', 'car', 'camera', 'minimap', 'terrain', 'builder', 'collision', 'rng', 'shadow', 'textures', 'traffic', 'roads', 'river', 'story', 'landmarks', 'handmade', 'interiors', 'profiles', 'grass', 'zone', 'props', 'shops'];
     const imports = { three: './lib/three.module.min.js?v=r170' };
     for (const f of files) imports[new URL('src/' + f + '.js', location.href).href] = './src/' + f + '.js?v=' + v;
     const map = document.createElement('script');
