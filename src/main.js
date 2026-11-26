@@ -6,6 +6,7 @@ import { Car } from './car.js';
 import { FollowCamera } from './camera.js';
 import { Minimap, BigMap } from './minimap.js';
 import { Grass } from './grass.js';
+import { Zone } from './zone.js';
 import { Traffic } from './traffic.js';
 import { Story, loadSave, setSaveKey } from './story.js';
 import { buildMenu, saveKeyFor } from './profiles.js';
@@ -102,6 +103,9 @@ follow.focus.set(player.position.x, player.position.y + 1.5, player.position.z);
 const minimap = new Minimap(document.getElementById('minimap'), world);
 const bigMap = new BigMap(minimap, world);
 const grass = new Grass(scene, world);
+const zone = new Zone(scene, world);
+minimap.zone = bigMap.zone = zone;
+let zoneLast = null, zoneWarn = 0;
 
 let currentCar = null;
 input.setDriving(false);
@@ -216,6 +220,17 @@ function frame(now) {
   world.updateLamps(dt);
   interiors.update(dt);
   grass.update(dt, currentCar ? currentCar.mesh.position : player.position, !!interiors.inside);
+  // Kapitel 1: nur der Bereich um den Stalden
+  zone.setActive(!!story.step);
+  if (zone.active && !interiors.inside) {
+    const px = currentCar ? currentCar.x : player.position.x, pz = currentCar ? currentCar.z : player.position.z;
+    if (zone.contains(px, pz)) zoneLast = { x: px, z: pz };
+    else if (zoneLast) {
+      if (currentCar) { currentCar.x = zoneLast.x; currentCar.z = zoneLast.z; currentCar.speed *= -0.3; }
+      else player.position.set(zoneLast.x, world.terrain.heightAt(zoneLast.x, zoneLast.z), zoneLast.z);
+      if (now - zoneWarn > 4000) { zoneWarn = now; toast('Gesperrt, bis Kapitel 1 geschafft ist', 3); }
+    }
+  }
   if (currentCar) { player.position.set(currentCar.x, currentCar.mesh.position.y, currentCar.z); }
 
   const target = currentCar ? currentCar.mesh.position : player.position;
