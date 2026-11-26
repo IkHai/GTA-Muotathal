@@ -6,7 +6,7 @@ import { Car } from './car.js';
 import { FollowCamera } from './camera.js';
 import { Minimap, BigMap } from './minimap.js';
 import { Traffic } from './traffic.js';
-import { Story } from './story.js';
+import { Story, loadSave, clearSave } from './story.js';
 
 import { setRenderer } from './textures.js';
 
@@ -112,6 +112,8 @@ function toast(text, seconds = 2.5) {
   toastTimer = seconds;
 }
 
+story.attach({ enterCar, exitCar, player, follow, toast, currentCar: () => currentCar });
+
 function nearestCar() {
   let best = null, bestD = 3.8;
   for (const c of cars) {
@@ -175,7 +177,7 @@ function frame(now) {
     for (const c of cars) if (!c.traffic && !c.story) c.update(dt, input);
     traffic.update(dt, player, story.car, cars);
     world.updateLamps(dt);
-    afterUpdate(now, story.car.mesh.position);
+    afterUpdate(now, story.mode === 'talk' ? story.focus : story.car.mesh.position);
     measureFps(dt);
     return;
   }
@@ -211,7 +213,7 @@ function frame(now) {
 
   const area = areaName();
   if (area !== lastArea) { lastArea = area; toast(area); }
-  const done = story.checkObjective(player.position);
+  const done = story.checkObjective(player.position, currentCar);
   if (done) toast(done, 6);
   // Kartenrand: Hinweis, wenn man nahe dran ist
   const edge = world.half - Math.max(Math.abs(player.position.x), Math.abs(player.position.z));
@@ -276,18 +278,25 @@ follow.update(0.016, { x: 0, y: 0 }, player.position, 'foot', 0, 0);
 world.updateVisibility(camera.position);
 requestAnimationFrame(frame);
 
-startEl.addEventListener('pointerup', async () => {
+// Spielstand vorhanden: „Neues Spiel“ anbieten
+const newGameEl = document.getElementById('new-game');
+if (loadSave()) {
+  newGameEl.style.display = 'block';
+  newGameEl.addEventListener('pointerup', () => { clearSave(); newGameEl.textContent = 'Spielstand gelöscht'; });
+  newGameEl.addEventListener('pointerdown', (e) => e.stopPropagation());
+}
+
+let started = false;
+startEl.addEventListener('pointerup', async (e) => {
+  if (e.target === newGameEl || started) return;
+  started = true;
   startEl.style.display = 'none';
   running = true;
   last = performance.now();
-  // Story: Flucht über den Pragel, danach sitzt man im Fluchtauto im Stalden
-  story.start((car) => {
-    if (!car) return;
-    enterCar(car);
-    follow.yaw = car.heading;
-    follow.focus.set(car.x, car.mesh.position.y + 1.5, car.z);
-    lastArea = '';
-  });
+  // Story: neues Spiel mit Flucht über den Pragel, sonst weiter beim Spielstand
+  const resumed = !!loadSave();
+  story.begin();
+  lastArea = resumed ? areaName() : '';   // beim Weiterspielen zuerst den Willkommensgruss zeigen
   try {
     if (document.documentElement.requestFullscreen && matchMedia('(pointer: coarse)').matches) {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
@@ -295,7 +304,7 @@ startEl.addEventListener('pointerup', async () => {
     if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
   } catch (_) { /* nicht jedes Handy erlaubt das */ }
   setTimeout(resize, 300);
-}, { once: true });
+});
 
 // Für Tests im Browser
-window.__game = { player, cars, input, follow, world, story, get currentCar() { return currentCar; } };
+window.__game = { player, cars, input, follow, world, story, enterCar, exitCar, get currentCar() { return currentCar; } };

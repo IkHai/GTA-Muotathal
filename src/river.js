@@ -70,6 +70,8 @@ export function prepareRivers(water, terrain) {
     else if (e >= 0 && e < BAND + 2) H[idx] = Math.max(H[idx], cr);
   }
 
+  rivers.best = best;
+
   // Abschnitte für schnelle Abfragen (Dammhöhe an beliebiger Stelle)
   const grid = new Map();
   for (const r of rivers) {
@@ -111,20 +113,34 @@ export function prepareRivers(water, terrain) {
   return rivers;
 }
 
+// Nach dem Strassennetz: Gitter ist 10 m grob, darum auch Punkte knapp ausserhalb der Mauer
+// absenken. Sonst ragen schräge Dreiecke als Erdhügel ins Flussbett. Die Dammkrone wird
+// separat gezeichnet. Bei Strassen (und Brückenköpfen) bleibt das Gelände, wie es ist.
+export function carveRiverBed(rivers, terrain) {
+  if (!rivers.best) return;
+  const n = terrain.n, res = terrain.res, half = terrain.half, H = terrain.heights;
+  for (const [idx, { e, wl }] of rivers.best) {
+    if (e >= BAND || e < -3) continue;
+    const x = -half + (idx % n) * res, z = -half + Math.floor(idx / n) * res;
+    if (terrain.roadAt && terrain.roadAt(x, z, 3, true) === terrain.roadAt(x, z, 3, true)) continue;
+    H[idx] = Math.min(H[idx], wl - 1.2);
+  }
+}
+
 // Begehbarer Damm: ausserhalb der Mauer zählt die Dammkrone bzw. die Böschung
 export function installRiverGround(rivers, terrain) {
   if (!rivers.length) return;
   const prev = terrain.heightAt;
-  terrain.heightAt = (x, z) => {
-    const h = prev(x, z);
+  terrain.heightAt = (x, z, refY) => {
+    const h = prev(x, z, refY);
     const r = rivers.at(x, z);
     if (!r || r.e < WALL_OUT || r.e > BAND + RAMP) return h;
-    if (terrain.roadAt) { const rh = terrain.roadAt(x, z); if (rh === rh) return h; }   // Strassen haben Vorrang
+    if (terrain.roadAt) { const rh = terrain.roadAt(x, z, 0, false, refY); if (rh === rh) return h; }   // Strassen haben Vorrang
     let band = r.cr;
     if (r.e > BAND) {
       // gerader Übergang von der Dammkrone zum Gelände 8 m weiter aussen
       const cr = r.cr, k = (r.e - BAND) / RAMP, d = r.hw + BAND + RAMP;
-      const g = prev(r.qx + r.ux * d, r.qz + r.uz * d);
+      const g = prev(r.qx + r.ux * d, r.qz + r.uz * d, refY);
       band = cr + (g - cr) * k;
     }
     return Math.max(h, band);

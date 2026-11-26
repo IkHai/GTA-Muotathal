@@ -1,8 +1,30 @@
 import * as THREE from 'three';
 import { Car } from './car.js';
+import { Builder } from './builder.js';
+import { makeCharacter } from './player.js';
 
-// Story: Flucht von Glarus über den Pragelpass in den Stalden.
-// Eine kurze Zwischensequenz (Kamerafahrten mit Untertiteln), danach übernimmt der Spieler.
+// Story, Kapitel 1 (1990): Lars Kasslov flieht nach einem Raubüberfall in Glarus über den
+// Pragelpass in den Stalden, findet im Hell's Club Hilfe bei Bruno Hell und bezieht eine Wohnung.
+// Ablauf: Zwischensequenz -> Wagen verstecken -> in den Club (Gespräch) -> zur Wohnung (speichern).
+
+const SAVE_KEY = 'muotathal-save';
+export function loadSave() { try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || null; } catch (_) { return null; } }
+export function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (_) { /* egal */ } }
+function writeSave(data) { try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (_) { /* egal */ } }
+
+// Gespräch im Club. who: 'B' = Bruno Hell, 'L' = Lars Kasslov
+const CLUB_TALK = [
+  ['B', 'Wir haben zu. … Ausser für Leute, die nicht von hier sind.'],
+  ['L', 'Ich brauche einen Platz zum Schlafen. Und keine Fragen.'],
+  ['B', 'Keine Fragen kosten extra. Du bist Kasslov, der aus Glarus. Das Radio redet seit heute Morgen von nichts anderem.'],
+  ['L', 'Und?'],
+  ['B', 'Und nichts. Im Stalden hört keiner Radio. Ich bin Bruno. Bruno Hell. Das hier ist mein Laden.'],
+  ['B', 'Drüben im Block steht eine Wohnung leer. Klein, feucht, aber da klopft keine Polizei.'],
+  ['L', 'Was willst du dafür?'],
+  ['B', 'Ab und zu erledigst du etwas für mich. Kleine Aufträge. Nichts, was einer aus Glarus nicht kann.'],
+  ['L', 'Abgemacht.'],
+  ['B', 'Hier, der Schlüssel. Dritter Stock. Und Kasslov … lass den Wagen stehen. Der ist heiss.'],
+];
 
 const STOP_BEFORE = 10;    // so viele Meter vor dem Ortspunkt Stalden hält das Auto
 const LANE = 1.4;          // rechte Fahrbahnhälfte
@@ -31,7 +53,15 @@ export class Story {
     this.end = this.route.length - STOP_BEFORE;
     this.shots = this.makeShots();
     this.placeCar(this.shots[0].s0);
-    this.ui.skip.addEventListener('click', () => { if (this.active) this.finish(); });
+    this.ui.skip.addEventListener('click', () => {
+      if (!this.active) return;
+      if (this.mode === 'talk') this.endTalk(); else this.finish();
+    });
+    this.ui.dialog = document.getElementById('dialog');
+    this.ui.dname = document.getElementById('dialog-name');
+    this.ui.dtext = document.getElementById('dialog-text');
+    this.ui.dialog.addEventListener('pointerup', (e) => { e.stopPropagation(); if (this.mode === 'talk') this.nextLine(); });
+    this.focus = new THREE.Vector3();
   }
 
   get available() { return !!this.route; }
@@ -41,17 +71,59 @@ export class Story {
     const E = this.end;
     return [
       { dur: 6.5, s0: Math.max(0, E - 430), v0: 21, v1: 21, cam: 'wide',
-        text: 'Glarus, letzte Nacht. Der Bruch ist schiefgegangen.' },
+        text: 'Glarus, 1990. Der Raubüberfall ist schiefgegangen.' },
       { dur: 6.5, s0: Math.max(0, E - 260), v0: 21, v1: 19, cam: 'chase',
-        text: 'Über den Pragel, nur weg. Hinten im Klöntal suchen sie schon.' },
+        text: 'Lars Kasslov flieht über den Pragel. Niemand hat ihn gesehen.' },
       { dur: 9, s0: Math.max(0, E - 70), v0: 14, v1: 0, brake: true, cam: 'arrive',
-        text: 'Stalden. Hier kennt dich keiner. Noch nicht.' },
+        text: 'Stalden, Muotathal. Hier muss er untertauchen.' },
     ];
+  }
+
+  // game: { enterCar, exitCar, player, follow, toast, currentCar() }
+  attach(game) { this.game = game; }
+
+  // Spielstart: neues Spiel mit Zwischensequenz oder weiter beim gespeicherten Stand
+  begin() {
+    const save = loadSave();
+    const lm = this.world.landmarks || {};
+    if (save && lm.club && lm.home) {
+      if (lm.club.parking) this.parkCar(lm.club.parking);
+      if (save.step === 'home') {
+        this.placeOnFoot(lm.club.door, lm.club.heading + Math.PI);
+        this.setStep('home');
+      } else {
+        this.placeOnFoot(lm.home.door, lm.home.heading + Math.PI);
+        this.game.toast('Willkommen zurück, Lars.', 4);
+      }
+      return;
+    }
+    this.start((car) => {
+      if (!car) return;
+      this.game.enterCar(car);
+      this.game.follow.yaw = car.heading;
+      this.game.follow.focus.set(car.x, car.mesh.position.y + 1.5, car.z);
+      this.setStep(lm.club ? (lm.club.parking ? 'park' : 'club') : null);
+    });
+  }
+
+  placeOnFoot(p, heading) {
+    this.game.player.teleport(p.x, p.z, heading);
+    this.game.follow.yaw = heading;
+    this.game.follow.focus.set(p.x, this.game.player.position.y + 1.5, p.z);
+  }
+
+  parkCar(p) {
+    const c = this.car;
+    if (!c) return;
+    c.story = false;
+    c.x = p.x; c.z = p.z; c.heading = p.heading; c.speed = 0; c.groundY = undefined;
+    c.placeOnGround();
   }
 
   start(onDone) {
     if (!this.route) { onDone && onDone(null); return; }
     this.onDone = onDone;
+    this.mode = 'intro';
     this.active = true;
     this.shotIndex = -1;
     document.body.classList.add('cutscene');
@@ -95,6 +167,7 @@ export class Story {
 
   update(dt) {
     if (!this.active) return;
+    if (this.mode === 'talk') { this.updateTalk(dt); return; }
     const shot = this.shots[this.shotIndex];
     this.t += dt;
     if (shot.brake) {
@@ -139,40 +212,126 @@ export class Story {
     document.body.classList.remove('cutscene');
     this.ui.sub.classList.remove('show');
     this.flash();
-    const village = this.world.places.find((p) => p.name === 'Muotathal') || { x: 143, z: 225 };
-    this.setObjective('Fahr ins Dorf Muotathal und tauch unter', village.x, village.z, 30);
+    this.mode = null;
     this.onDone && this.onDone(this.car);
   }
 
-  // ---------- Ziel mit Markierung ----------
-  setObjective(text, x, z, radius) {
-    this.objective = { text, x, z, radius, reached: false };
+  // ---------- Ziele von Kapitel 1 ----------
+  setStep(step) {
+    this.step = step;
+    const lm = this.world.landmarks || {};
+    if (step === 'park') this.setObjective("Versteck den Wagen auf dem Parkplatz hinter dem Hell's Club", lm.club.parking, 4.5, { car: true });
+    else if (step === 'club') this.setObjective("Steig aus und geh in den Hell's Club", lm.club.door, 1.8, { foot: true });
+    else if (step === 'home') this.setObjective('Geh zu deiner Wohnung im Block gegenüber', lm.home.door, 1.8, { foot: true });
+    else this.clearObjective();
+  }
+
+  setObjective(text, p, radius, need = {}) {
+    this.objective = { text, x: p.x, z: p.z, radius, need };
     this.ui.obj.textContent = text;
     this.ui.obj.classList.add('show');
     if (!this.marker) {
-      const g = new THREE.CylinderGeometry(radius * 0.25, radius * 0.25, 60, 24, 1, true);
-      g.translate(0, 30, 0);
-      const m = new THREE.MeshBasicMaterial({ color: 0xf2c230, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide, fog: false });
+      const g = new THREE.CylinderGeometry(1, 1, 1, 24, 1, true);
+      g.translate(0, 0.5, 0);
+      const m = new THREE.MeshBasicMaterial({ color: 0xf2c230, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide, fog: false });
       this.marker = new THREE.Mesh(g, m);
       this.scene.add(this.marker);
     }
-    this.marker.position.set(x, this.world.terrain.heightAt(x, z) - 1, z);
+    this.marker.scale.set(radius * 0.8, need.car ? 3 : 2.2, radius * 0.8);
+    this.marker.position.set(p.x, this.world.terrain.heightAt(p.x, p.z) - 0.2, p.z);
     this.marker.visible = true;
   }
 
-  // Prüft, ob das Ziel erreicht ist. Gibt einen Text zurück, wenn ja.
-  checkObjective(pos, dt) {
+  clearObjective() {
+    this.objective = null;
+    this.ui.obj.classList.remove('show');
+    if (this.marker) this.marker.visible = false;
+  }
+
+  // Jedes Bild: Ziel erreicht? Gibt einen Hinweistext zurück, wenn etwas passiert ist.
+  checkObjective(pos, car) {
     const o = this.objective;
-    if (!o || o.reached) return null;
-    if (this.marker) this.marker.material.opacity = 0.22 + Math.sin(performance.now() / 300) * 0.06;
-    if (Math.hypot(pos.x - o.x, pos.z - o.z) < o.radius) {
-      o.reached = true;
-      this.marker.visible = false;
-      this.ui.obj.classList.remove('show');
-      this.objective = null;
-      return 'Untergetaucht. Fortsetzung folgt …';
+    if (!o || this.active) return null;
+    if (this.marker) this.marker.material.opacity = 0.24 + Math.sin(performance.now() / 300) * 0.08;
+    if (Math.hypot(pos.x - o.x, pos.z - o.z) > o.radius) return null;
+    if (o.need.car && (!car || Math.abs(car.speed) > 1.5)) return null;
+    if (o.need.foot && car) return null;
+    if (this.step === 'park') { this.setStep('club'); return 'Wagen versteckt'; }
+    if (this.step === 'club') { this.clearObjective(); this.startTalk(); return null; }
+    if (this.step === 'home') {
+      this.clearObjective();
+      writeSave({ v: 1, chapter: 1, step: 'free' });
+      return 'Neue Bleibe gefunden. Kapitel 1 geschafft!';
     }
     return null;
+  }
+
+  // ---------- Gespräch im Hell's Club ----------
+  startTalk() {
+    const lm = this.world.landmarks.club;
+    if (!this.room) this.room = buildClubRoom(this.scene, lm, this.world.terrain);
+    this.mode = 'talk';
+    this.active = true;
+    this.line = -1;
+    this.lineTime = 0;
+    this.room.group.visible = true;
+    document.body.classList.add('cutscene');
+    this.ui.dialog.classList.add('show');
+    this.game.player.setVisible(false);
+    this.flash();
+    this.focus.copy(this.room.center);
+    this.nextLine();
+  }
+
+  nextLine() {
+    this.line++;
+    if (this.line >= CLUB_TALK.length) { this.endTalk(); return; }
+    const [who, text] = CLUB_TALK[this.line];
+    this.ui.dname.textContent = who === 'B' ? 'Bruno Hell' : 'Lars Kasslov';
+    this.ui.dname.className = who === 'B' ? 'bruno' : 'lars';
+    this.ui.dtext.textContent = text;
+    this.lineTime = 0;
+    // Kamera über die Schulter des Zuhörers auf den Sprecher, erste Zeile als Totale
+    const r = this.room;
+    const S = who === 'B' ? r.bruno : r.lars, H = who === 'B' ? r.lars : r.bruno;
+    const cam = this.camera;
+    if (this.line === 0) {
+      cam.position.copy(r.wide);
+    } else {
+      const dx = S.position.x - H.position.x, dz = S.position.z - H.position.z, l = Math.hypot(dx, dz) || 1;
+      cam.position.set(H.position.x - dx / l * 1.9 + dz / l * 0.8, H.position.y + 1.85, H.position.z - dz / l * 1.9 - dx / l * 0.8);
+    }
+    // etwas tiefer zielen, damit die Köpfe über dem Dialogfenster stehen
+    this.look = new THREE.Vector3(S.position.x, S.position.y + 1.1, S.position.z);
+    cam.lookAt(this.look);
+  }
+
+  updateTalk(dt) {
+    this.lineTime += dt;
+    const r = this.room;
+    // ein wenig Leben: Sprecher wippt, Diskokugel dreht sich
+    const who = CLUB_TALK[Math.max(0, this.line)][0];
+    const S = who === 'B' ? r.bruno : r.lars;
+    S.userData.fig.head.rotation.y = Math.sin(this.lineTime * 3) * 0.08;
+    S.userData.fig.armR.rotation.x = -0.2 - Math.abs(Math.sin(this.lineTime * 2.2)) * 0.35;
+    r.ball.rotation.y += dt * 0.8;
+    // langsamer Kameraschwenk in der Totale
+    if (this.line === 0) { this.camera.position.x += dt * 0.15; this.camera.lookAt(this.look); }
+  }
+
+  endTalk() {
+    this.mode = null;
+    this.active = false;
+    this.room.group.visible = false;
+    document.body.classList.remove('cutscene');
+    this.ui.dialog.classList.remove('show');
+    this.game.player.setVisible(true);
+    const lm = this.world.landmarks.club;
+    this.placeOnFoot(lm.door, lm.heading + Math.PI);
+    this.flash();
+    writeSave({ v: 1, chapter: 1, step: 'home' });
+    this.setStep('home');
+    this.game.toast('Schlüssel erhalten', 3);
   }
 
   // ---------- Hilfen ----------
@@ -262,4 +421,81 @@ function buildPragelRoute(world) {
   });
   route.length = acc;
   return route.length > 120 ? route : null;
+}
+
+// ---------- Innenraum des Clubs (nur für die Szene, tief unter dem Haus versteckt) ----------
+// Ungelichtete Farben (MeshBasic), Schummerlicht ist in den Farben schon drin.
+function buildClubRoom(scene, club, terrain) {
+  const g0 = terrain.heightAt(club.x, club.z) - 80;
+  const O = new THREE.Vector3(club.x, g0, club.z);
+  const b = new Builder();
+  const W = 11, Dp = 8, H = 3.3;
+  b.box(0, -0.1, 0, W, 0.2, Dp, 0x2a1418);                    // Teppich
+  for (let i = -5; i <= 5; i++) b.box(i, 0.005, 0, 0.04, 0.01, Dp, 0x34191e);
+  b.box(0, H + 0.1, 0, W, 0.2, Dp, 0x120c10);                 // Decke
+  b.box(0, H / 2, -Dp / 2 - 0.1, W, H, 0.2, 0x3a1830);        // Wände
+  b.box(0, H / 2, Dp / 2 + 0.1, W, H, 0.2, 0x2c1226);
+  b.box(-W / 2 - 0.1, H / 2, 0, 0.2, H, Dp, 0x341429);
+  b.box(W / 2 + 0.1, H / 2, 0, 0.2, H, Dp, 0x2f1224);
+  // Neonleisten
+  b.box(0, H - 0.25, -Dp / 2 + 0.02, W - 0.4, 0.06, 0.04, 0xff3a8a);
+  b.box(-W / 2 + 0.02, H - 0.25, 0, 0.04, 0.06, Dp - 0.4, 0x3ac8ff);
+  b.box(W / 2 - 0.02, H - 0.25, 0, 0.04, 0.06, Dp - 0.4, 0x3ac8ff);
+  // Bar mit Regal und Flaschen
+  b.box(-1.5, 0.55, -2.6, 5, 1.1, 0.7, 0x4a2a1c);
+  b.box(-1.5, 1.13, -2.6, 5.2, 0.06, 0.85, 0x6b3f28);
+  b.box(-1.5, 1.6, -3.85, 5.4, 0.05, 0.3, 0x3a2016);
+  b.box(-1.5, 2.1, -3.85, 5.4, 0.05, 0.3, 0x3a2016);
+  const bottles = [0x2f6b3a, 0x8a5a1a, 0xc8c8c0, 0x6a1a1a, 0x2a4a7a, 0xd0a030];
+  for (let i = 0; i < 26; i++) {
+    const x = -4 + (i % 13) * 0.4, y = i < 13 ? 1.78 : 2.28;
+    b.box(x, y, -3.85, 0.09, 0.32, 0.09, bottles[(i * 7) % bottles.length]);
+  }
+  for (const x of [-3, -1.8, -0.6, 0.6]) {
+    b.box(x, 0.4, -1.95, 0.08, 0.8, 0.08, 0x777777);
+    b.box(x, 0.82, -1.95, 0.42, 0.08, 0.42, 0x8a1a2a);
+  }
+  // kleine Bühne mit Vorhang und Spiegeln
+  b.box(3.6, 0.2, -2.2, 3, 0.4, 3, 0x1a1a1e);
+  b.box(3.6, 0.41, -2.2, 2.6, 0.02, 2.6, 0x3a3a44);
+  for (let k = 0; k < 9; k++) b.box(2.25 + k * 0.33, H / 2 + 0.2, -3.85, 0.3, H - 0.4, 0.12, k % 2 ? 0x7a0f1c : 0x8f1424);
+  // Tische mit Sesseln
+  for (const [x, z] of [[2.5, 1.8], [-0.5, 2], [-3.6, 1.2]]) {
+    b.box(x, 0.36, z, 0.9, 0.06, 0.9, 0x5a3a26);
+    b.box(x, 0.18, z, 0.12, 0.36, 0.12, 0x2a2a2a);
+    for (const s of [-1, 1]) b.box(x + s * 0.9, 0.25, z, 0.6, 0.5, 0.7, 0x5a1020);
+    b.box(x, 0.42, z, 0.08, 0.1, 0.08, 0xffd27a);             // Kerze
+  }
+  const group = new THREE.Group();
+  const mesh = b.build(new THREE.MeshBasicMaterial({ vertexColors: true }));
+  group.add(mesh);
+  const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 1), new THREE.MeshBasicMaterial({ color: 0xc8c8d0, wireframe: false }));
+  ball.position.set(0.5, H - 0.6, 0);
+  group.add(ball);
+  // Figuren
+  const bruno = makeCharacter({ jacket: 0x5a1020, shirt: 0xe8dcc8, pants: 0x1e1e22, hair: 0x101010, skin: 0xc08a6a, shoe: 0x111111, wide: 1.25 });
+  const bf = bruno.part;
+  bruno.head.add(bf(new THREE.BoxGeometry(0.2, 0.05, 0.03), bruno.M(0x050505), 0, 0.02, 0.105));                 // Sonnenbrille
+  bruno.hip.add(bf(new THREE.TorusGeometry(0.1, 0.012, 6, 16), bruno.M(0xd4af37), 0, 0.55, 0.1, 1, 1.2, 1));    // Goldkette
+  const lars = makeCharacter();
+  const B = bruno.group, L = lars.group;
+  B.userData.fig = bruno; L.userData.fig = lars;
+  B.position.set(-0.6, 0, -1.4); L.position.set(-0.4, 0, 0.4);
+  B.rotation.y = Math.atan2(L.position.x - B.position.x, L.position.z - B.position.z);
+  L.rotation.y = Math.atan2(B.position.x - L.position.x, B.position.z - L.position.z);
+  // Licht für die Figuren: ungelichtete Farben wären zu flach, darum eigene Lambert-Farben aufhellen
+  for (const fig of [bruno, lars]) fig.group.traverse((o) => { if (o.material && o.material.emissive) o.material.emissive.copy(o.material.color).multiplyScalar(0.25); });
+  group.add(B, L);
+  group.position.copy(O);
+  group.visible = false;
+  scene.add(group);
+  const toWorld = (o) => o.getWorldPosition(new THREE.Vector3());
+  group.updateMatrixWorld(true);
+  return {
+    group, ball,
+    bruno: { get position() { return toWorld(B); }, userData: B.userData },
+    lars: { get position() { return toWorld(L); }, userData: L.userData },
+    center: O.clone().add(new THREE.Vector3(0, 1.5, 0)),
+    wide: O.clone().add(new THREE.Vector3(3.8, 2.4, 3.3)),
+  };
 }

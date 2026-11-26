@@ -5,7 +5,8 @@ import { materials } from './textures.js';
 import { Colliders } from './collision.js';
 import { makeRng } from './rng.js';
 import { buildRoadNet, drawRoadNet } from './roads.js';
-import { prepareRivers, drawRivers, installRiverGround } from './river.js';
+import { prepareRivers, drawRivers, installRiverGround, carveRiverBed } from './river.js';
+import { findLandmark, decorateLandmark } from './landmarks.js';
 
 // Kachelgrösse für Gelände und Details. Nur Kacheln in der Nähe werden fein gezeichnet.
 const CHUNK = 500;
@@ -77,6 +78,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
   // Muota verbauen und Strassennetz zuerst: beide passen das Gelände an
   const rivers = prepareRivers(osm.water, terrain);
   const net = buildRoadNet(osm.roads, terrain);
+  carveRiverBed(rivers, terrain);
   installRiverGround(rivers, terrain);
   const colliders = new Colliders();
   const rng = makeRng(4417);
@@ -135,9 +137,14 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
 
   // ---------- Gebäude ----------
   const houses = [];
+  const landmarks = {};
   for (const b of osm.buildings) {
-    const info = building(b, terrain, colliders, chunkAt, rng);
-    if (info) houses.push(info);
+    // besondere Gebäude der Story (Hell's Club, Wohnblock, …) bekommen eigenes Aussehen
+    const lm = findLandmark(b);
+    const info = building(b, terrain, colliders, chunkAt, rng, lm ? lm.style : undefined);
+    if (!info) continue;
+    houses.push(info);
+    if (lm) landmarks[lm.id] = decorateLandmark(lm, info, { terrain, chunkAt, colliders });
   }
 
   const buildingIndex = new Map();
@@ -227,6 +234,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
   // ---------- Kacheln fertigstellen ----------
   for (const ch of chunks) {
     ch.group = new THREE.Group();
+    if (ch.extra) for (const m of ch.extra) ch.group.add(m);
     for (const [name, b] of Object.entries(ch.detail)) {
       if (!b.pos.length) continue;
       const m = b.build(M[name], name === 'wood' || name === 'plaster' ? 0.5 : 0.45);
@@ -320,7 +328,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
 
   return {
     cows, terrain, colliders, houses, clouds, meta, osm, chunks, half, mainRoads,
-    spawn, carSpawns: carSpots, lamps,
+    spawn, carSpawns: carSpots, lamps, rivers, landmarks,
     // Laternen in der Nähe eines Punktes
     lampsNear(x, z, r) {
       const out = [];
@@ -598,7 +606,7 @@ function buildTerrainChunk(terrain, x0, z0, step, mat) {
 }
 
 // ---------- Gebäude aus OpenStreetMap ----------
-function building(b, terrain, colliders, chunkAt, rng) {
+function building(b, terrain, colliders, chunkAt, rng, style = {}) {
   let pts = toPts(b.p);
   if (pts.length < 3) return null;
   // Umlaufrichtung vereinheitlichen
@@ -620,6 +628,7 @@ function building(b, terrain, colliders, chunkAt, rng) {
   const isChurch = t === 'church' || t === 'chapel' || b.a === 'place_of_worship';
   let wallH = b.h ? b.h * 0.72 : b.l ? b.l * 2.9 + 0.5 : small ? 3 : ['barn', 'farm_auxiliary', 'stable', 'cowshed'].includes(t) ? 5.5 : area > 400 ? 9 : 6.5;
   if (isChurch) wallH = Math.max(wallH, 11);
+  if (style.wallH) wallH = style.wallH;
   const base = gMin - 0.6;
   const top = gMax + wallH;
 
@@ -642,10 +651,11 @@ function building(b, terrain, colliders, chunkAt, rng) {
   const ch = chunkAt(cx, cz);
   const D = ch.detail;
   const hash = Math.abs(Math.sin(cx * 3.1 + cz * 7.7) * 1000) % 1;
-  const isWood = !isChurch && !['apartments', 'commercial', 'retail', 'school', 'industrial', 'public', 'hotel'].includes(t) && hash < 0.55;
-  const wallColor = isChurch ? 0xe2dccd : isWood ? C.wood[Math.floor(hash * 30) % 3] : C.plaster[Math.floor(hash * 30) % 3];
+  const isWood = style.wood ?? (!isChurch && !['apartments', 'commercial', 'retail', 'school', 'industrial', 'public', 'hotel'].includes(t) && hash < 0.55);
+  const wallColor = style.wall ?? (isChurch ? 0xe2dccd : isWood ? C.wood[Math.floor(hash * 30) % 3] : C.plaster[Math.floor(hash * 30) % 3]);
   let roofColor = isChurch ? 0x4d4440 : C.roof[Math.floor(hash * 70) % 4];
-  if (terrain.aerial && !isChurch) {
+  if (style.roof) roofColor = style.roof;
+  else if (terrain.aerial && !isChurch) {
     // Dachfarbe aus dem Luftbild (Mitte des Hauses), leicht an die Dachpalette angeglichen
     const [r, g, bl] = terrain.aerial.at(cx, cz, Math.min(3, Math.sqrt(area) * 0.25));
     const ac = new THREE.Color().setRGB(r, g, bl, THREE.SRGBColorSpace);
@@ -672,8 +682,8 @@ function building(b, terrain, colliders, chunkAt, rng) {
           const s0 = (k + 0.5) / n - 0.55 / len, s1 = (k + 0.5) / n + 0.55 / len;
           const px1 = x1 + (x2 - x1) * s0 + nx, pz1 = z1 + (z2 - z1) * s0 + nz, px2 = x1 + (x2 - x1) * s1 + nx, pz2 = z1 + (z2 - z1) * s1 + nz;
           quadWall(D.glass, px1, pz1, px2, pz2, y0, y0 + 1.2, win);
-          if (isWood || hash > 0.8) {
-            const sh = new THREE.Color(C.shutter);
+          if (style.shutters ?? (isWood || hash > 0.8)) {
+            const sh = new THREE.Color(style.shutterColor ?? C.shutter);
             const w = 0.5 / len;
             quadWall(D.plain, x1 + (x2 - x1) * (s0 - w) + nx, z1 + (z2 - z1) * (s0 - w) + nz, px1, pz1, y0, y0 + 1.2, sh);
             quadWall(D.plain, px2, pz2, x1 + (x2 - x1) * (s1 + w) + nx, z1 + (z2 - z1) * (s1 + w) + nz, y0, y0 + 1.2, sh);
@@ -685,7 +695,7 @@ function building(b, terrain, colliders, chunkAt, rng) {
 
   // Dach
   const rc = new THREE.Color(roofColor);
-  const rect = pts.length <= 5 && Math.abs(L * W - area) / area < 0.18;
+  const rect = style.gable || (pts.length <= 5 && Math.abs(L * W - area) / area < 0.18);
   if (rect && !['flat'].includes(b.r)) {
     const roofH = Math.min(W * 0.42, 6);
     const ry = Math.atan2(ax, az);
@@ -723,7 +733,7 @@ function building(b, terrain, colliders, chunkAt, rng) {
       colliders.addOrientedBox((x1 + x2) / 2, (z1 + z2) / 2, (x2 - x1) / l, (z2 - z1) / l, l / 2 + 0.1, 0.3, base, top + 3);
     }
   }
-  return { x: cx, z: cz, pts, church: isChurch };
+  return { x: cx, z: cz, pts, church: isChurch, gMin, gMax, base, top, sockel, ocx, ocz, ax, az, L, W };
 }
 
 function quadWall(b, x1, z1, x2, z2, y0, y1, color) {

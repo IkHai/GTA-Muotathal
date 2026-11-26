@@ -19,7 +19,7 @@
     const css = document.createElement('link');
     css.rel = 'stylesheet'; css.href = 'style.css?v=' + v;
     document.head.appendChild(css);
-    const files = ['main', 'world', 'input', 'player', 'car', 'camera', 'minimap', 'terrain', 'builder', 'collision', 'rng', 'shadow', 'textures', 'traffic', 'roads', 'river', 'story'];
+    const files = ['main', 'world', 'input', 'player', 'car', 'camera', 'minimap', 'terrain', 'builder', 'collision', 'rng', 'shadow', 'textures', 'traffic', 'roads', 'river', 'story', 'landmarks'];
     const imports = { three: './lib/three.module.min.js?v=r170' };
     for (const f of files) imports[new URL('src/' + f + '.js', location.href).href] = './src/' + f + '.js?v=' + v;
     const map = document.createElement('script');
@@ -62,6 +62,7 @@
 <div class="cine" id="cine-bot"></div>
 <div id="subtitle"></div>
 <button id="skip">Überspringen ›</button>
+<div id="dialog"><div id="dialog-name"></div><div id="dialog-text"></div><div id="dialog-next">Tippen ›</div></div>
 <div id="fade"></div>
 
 <div id="start">
@@ -74,6 +75,7 @@
   </div>
   <div id="loading">Lade Tal …</div>
   <div id="version"></div>
+  <div id="new-game">Neues Spiel</div>
   <div id="credits-start">Karte: Höhenmodell und Luftbild © swisstopo · Strassen, Häuser, Gewässer © OpenStreetMap-Mitwirkende (ODbL)</div>
 </div>
 

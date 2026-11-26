@@ -16,6 +16,13 @@ export class FollowCamera {
   }
 
   update(dt, look, target, mode, carHeading, carSpeed) {
+    // feste Kamera (z.B. für Szenen): { x, y, z, lx, ly, lz }
+    if (this.fixed) {
+      const f = this.fixed;
+      this.camera.position.set(f.x, f.y, f.z);
+      this.camera.lookAt(f.lx, f.ly, f.lz);
+      return;
+    }
     const k = this.sensitivity / Math.max(320, innerWidth);
     const moved = Math.abs(look.x) + Math.abs(look.y) > 0.5;
     this.idle = moved ? 0 : this.idle + dt;
@@ -53,7 +60,7 @@ export class FollowCamera {
     for (let i = 1; i <= steps; i++) {
       const d = this.dist * i / steps;
       const x = this.focus.x + dx * d, y = this.focus.y + dy * d, z = this.focus.z + dz * d;
-      if (this.world.terrain.heightAt(x, z) + 0.4 > y || this.world.colliders.insideBox(x, y, z)) {
+      if (this.world.terrain.heightAt(x, z, y) + 0.4 > y || this.world.colliders.insideBox(x, y, z)) {
         allowed = Math.max(0.8, this.dist * (i - 1) / steps);
         break;
       }
@@ -63,7 +70,7 @@ export class FollowCamera {
 
     const cam = this.camera;
     cam.position.set(this.focus.x + dx * this.curDist, this.focus.y + dy * this.curDist, this.focus.z + dz * this.curDist);
-    const minY = this.world.terrain.heightAt(cam.position.x, cam.position.z) + 0.35;
+    const minY = this.world.terrain.heightAt(cam.position.x, cam.position.z, cam.position.y) + 0.35;
     if (cam.position.y < minY) cam.position.y = minY;
     cam.lookAt(this.focus);
   }

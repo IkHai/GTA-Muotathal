@@ -16,37 +16,10 @@ export class Player {
     this.phase = 0;
     this.speed = 0;
 
-    // Figur mit realistischeren Proportionen (ca. 1.80 m)
-    const g = new THREE.Group();
-    const M = (color) => new THREE.MeshLambertMaterial({ color });
-    const jacket = M(0x3b4636), pants = M(0x3c414c), skin = M(0xc4977a), hair = M(0x2a211b), shoe = M(0x2e241c), shirt = M(0x8c8c86);
-    const part = (geo, mat, x, y, z, sx = 1, sy = 1, sz = 1) => {
-      const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.castShadow = true; return m;
-    };
-    const cap = (r, l) => new THREE.CapsuleGeometry(r, l, 3, 8);
-    const hip = new THREE.Group(); hip.position.y = 0.95; g.add(hip);
-    // Oberkörper
-    hip.add(part(cap(0.17, 0.32), jacket, 0, 0.3, 0, 1.25, 1, 0.75));
-    hip.add(part(new THREE.BoxGeometry(0.2, 0.3, 0.02), shirt, 0, 0.42, 0.12));   // Shirt unter offener Jacke
-    hip.add(part(cap(0.15, 0.08), pants, 0, 0.0, 0, 1.15, 1, 0.8));              // Becken
-    hip.add(part(new THREE.CylinderGeometry(0.05, 0.06, 0.1, 8), skin, 0, 0.66, 0)); // Hals
-    const head = new THREE.Group(); head.position.set(0, 0.8, 0); hip.add(head);
-    head.add(part(new THREE.SphereGeometry(0.115, 12, 10), skin, 0, 0, 0, 0.9, 1.1, 1));
-    head.add(part(new THREE.SphereGeometry(0.12, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), hair, 0, 0.03, -0.01, 0.95, 1, 1.02));
-    head.add(part(new THREE.BoxGeometry(0.03, 0.04, 0.03), skin, 0, -0.02, 0.11)); // Nase
-    const limb = (r, len, mat, x, y, footMat) => {
-      const pivot = new THREE.Group(); pivot.position.set(x, y, 0);
-      pivot.add(part(cap(r, len), mat, 0, -len / 2 - r * 0.3, 0));
-      if (footMat === 'hand') pivot.add(part(new THREE.SphereGeometry(r * 1.05, 8, 6), skin, 0, -len - r * 1.2, 0));
-      else if (footMat) pivot.add(part(new THREE.BoxGeometry(0.11, 0.08, 0.27), footMat, 0, -len - r * 1.2, 0.05));
-      return pivot;
-    };
-    this.armL = limb(0.055, 0.52, jacket, -0.25, 0.5, 'hand'); hip.add(this.armL);
-    this.armR = limb(0.055, 0.52, jacket, 0.25, 0.5, 'hand'); hip.add(this.armR);
-    this.legL = limb(0.075, 0.78, pants, -0.1, -0.02, shoe); hip.add(this.legL);
-    this.legR = limb(0.075, 0.78, pants, 0.1, -0.02, shoe); hip.add(this.legR);
-    this.armL.rotation.z = -0.08; this.armR.rotation.z = 0.08;
-    this.hip = hip;
+    const fig = makeCharacter();
+    const g = fig.group;
+    this.armL = fig.armL; this.armR = fig.armR; this.legL = fig.legL; this.legR = fig.legR;
+    this.hip = fig.hip;
     this.mesh = g;
     scene.add(g);
 
@@ -61,7 +34,7 @@ export class Player {
   setVisible(v) { this.mesh.visible = v; this.shadow.visible = v; }
 
   groundAt(x, z, feetY) {
-    const t = this.world.terrain.heightAt(x, z);
+    const t = this.world.terrain.heightAt(x, z, feetY);
     const s = this.world.colliders.supportAt(x, z, this.radius, feetY);
     return Math.max(t, s);
   }
@@ -93,8 +66,8 @@ export class Player {
     let nz = p.z + wz * this.speed * dt * (strength > 0.001 ? 1 : 0);
 
     // zu steile Hänge blockieren
-    const hOld = this.world.terrain.heightAt(p.x, p.z);
-    const hNew = this.world.terrain.heightAt(nx, nz);
+    const hOld = this.world.terrain.heightAt(p.x, p.z, p.y);
+    const hNew = this.world.terrain.heightAt(nx, nz, p.y);
     const dist = Math.hypot(nx - p.x, nz - p.z);
     if (dist > 1e-4 && (hNew - hOld) / dist > 1.1 && hNew > p.y + 0.2) { nx = p.x; nz = p.z; }
 
@@ -135,7 +108,7 @@ export class Player {
     this.hip.rotation.x = run * 0.12;
     this.mesh.position.copy(this.position);
     this.mesh.rotation.y = this.heading;
-    const g = this.world.terrain.heightAt(this.position.x, this.position.z);
+    const g = this.world.terrain.heightAt(this.position.x, this.position.z, this.position.y);
     const s = this.world.colliders.supportAt(this.position.x, this.position.z, this.radius, this.position.y + 0.01);
     this.shadow.position.set(this.position.x, Math.max(g, s) + 0.05, this.position.z);
   }
@@ -145,4 +118,40 @@ export class Player {
     this.heading = heading;
     this.vy = 0; this.speed = 0; this.grounded = true;
   }
+}
+
+// Figur (ca. 1.80 m) mit wählbaren Farben. Wird auch für andere Personen der Story benutzt.
+const DEFAULT_LOOK = { jacket: 0x3b4636, pants: 0x3c414c, skin: 0xc4977a, hair: 0x2a211b, shoe: 0x2e241c, shirt: 0x8c8c86, wide: 1 };
+export function makeCharacter(look = {}) {
+  const c = { ...DEFAULT_LOOK, ...look };
+  const g = new THREE.Group();
+  const M = (color) => new THREE.MeshLambertMaterial({ color });
+  const jacket = M(c.jacket), pants = M(c.pants), skin = M(c.skin), hair = M(c.hair), shoe = M(c.shoe), shirt = M(c.shirt);
+  const part = (geo, mat, x, y, z, sx = 1, sy = 1, sz = 1) => {
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.castShadow = true; return m;
+  };
+  const cap = (r, l) => new THREE.CapsuleGeometry(r, l, 3, 8);
+  const hip = new THREE.Group(); hip.position.y = 0.95; g.add(hip);
+  // Oberkörper
+  hip.add(part(cap(0.17, 0.32), jacket, 0, 0.3, 0, 1.25 * c.wide, 1, 0.75 * c.wide));
+  hip.add(part(new THREE.BoxGeometry(0.2, 0.3, 0.02), shirt, 0, 0.42, 0.12));   // Shirt unter offener Jacke
+  hip.add(part(cap(0.15, 0.08), pants, 0, 0.0, 0, 1.15, 1, 0.8));              // Becken
+  hip.add(part(new THREE.CylinderGeometry(0.05, 0.06, 0.1, 8), skin, 0, 0.66, 0)); // Hals
+  const head = new THREE.Group(); head.position.set(0, 0.8, 0); hip.add(head);
+  head.add(part(new THREE.SphereGeometry(0.115, 12, 10), skin, 0, 0, 0, 0.9, 1.1, 1));
+  head.add(part(new THREE.SphereGeometry(0.12, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), hair, 0, 0.03, -0.01, 0.95, 1, 1.02));
+  head.add(part(new THREE.BoxGeometry(0.03, 0.04, 0.03), skin, 0, -0.02, 0.11)); // Nase
+  const limb = (r, len, mat, x, y, footMat) => {
+    const pivot = new THREE.Group(); pivot.position.set(x, y, 0);
+    pivot.add(part(cap(r, len), mat, 0, -len / 2 - r * 0.3, 0));
+    if (footMat === 'hand') pivot.add(part(new THREE.SphereGeometry(r * 1.05, 8, 6), skin, 0, -len - r * 1.2, 0));
+    else if (footMat) pivot.add(part(new THREE.BoxGeometry(0.11, 0.08, 0.27), footMat, 0, -len - r * 1.2, 0.05));
+    return pivot;
+  };
+  const armL = limb(0.055, 0.52, jacket, -0.25, 0.5, 'hand'); hip.add(armL);
+  const armR = limb(0.055, 0.52, jacket, 0.25, 0.5, 'hand'); hip.add(armR);
+  const legL = limb(0.075, 0.78, pants, -0.1, -0.02, shoe); hip.add(legL);
+  const legR = limb(0.075, 0.78, pants, 0.1, -0.02, shoe); hip.add(legR);
+  armL.rotation.z = -0.08; armR.rotation.z = 0.08;
+  return { group: g, hip, head, armL, armR, legL, legR, part, M };
 }

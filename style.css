@@ -132,3 +132,19 @@ body.cutscene #skip { display: block; }
   font: 600 15px Arial, sans-serif; opacity: 0; transition: opacity .6s; text-align: left;
 }
 #objective.show { opacity: 1; }
+
+/* ---------- Dialoge ---------- */
+#dialog {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 12vh; width: min(720px, 84vw); z-index: 23; display: none;
+  background: rgba(10,8,12,.78); border: 2px solid rgba(255,255,255,.25); border-radius: 8px; padding: 10px 16px 22px;
+  color: #fff; font: 17px Arial, sans-serif; line-height: 1.35;
+}
+#dialog.show { display: block; }
+#dialog-name { font: 700 15px "Arial Black", Arial, sans-serif; margin-bottom: 4px; letter-spacing: .5px; }
+#dialog-name.bruno { color: #ff5a6a; }
+#dialog-name.lars { color: #8fd0ff; }
+#dialog-next { position: absolute; right: 12px; bottom: 5px; font-size: 12px; opacity: .7; }
+#new-game {
+  display: none; position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+  padding: 6px 14px; border: 1px solid rgba(255,255,255,.6); border-radius: 16px; font: 600 14px Arial, sans-serif;
+}
