@@ -27,7 +27,8 @@ export class Car {
     this.mesh.add(this.body);
 
     // Räder
-    const wr = this.model === 'suv' ? 0.37 : 0.34, wb = this.model === 'suv' ? 1.33 : 1.38;
+    const wr = this.wheelR = this.model === 'suv' ? 0.37 : 0.34;
+    const wb = this.model === 'suv' ? 1.33 : 1.38;
     const wheelGeo = new THREE.CylinderGeometry(wr, wr, this.model === 'suv' ? 0.24 : 0.22, 14);
     wheelGeo.rotateZ(Math.PI / 2);
     const wheelMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
@@ -150,7 +151,7 @@ export class Car {
     this.bump = Math.max(0, this.bump - dt);
 
     // Räder drehen und lenken
-    for (const w of this.wheels) w.rotation.x += s / 0.34 * dt;
+    for (const w of this.wheels) w.rotation.x += s / this.wheelR * dt;
     for (const p of this.frontPivots) p.rotation.y = -this.steer * 0.45;
     this.placeOnGround();
   }

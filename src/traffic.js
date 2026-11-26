@@ -58,7 +58,7 @@ export class Traffic {
       if (t.s > t.route.length - 5) { t.s = t.route.length - 5; t.dir = -1; }
       car.speed = t.speed;
       this.place(car);
-      for (const w of car.wheels) w.rotation.x += t.speed / 0.34 * dt;
+      for (const w of car.wheels) w.rotation.x += t.speed / car.wheelR * dt;
     }
   }
 
