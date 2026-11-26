@@ -16,6 +16,13 @@ export class FollowCamera {
   }
 
   update(dt, look, target, mode, carHeading, carSpeed) {
+    // feste Kamera (z.B. für Szenen): { x, y, z, lx, ly, lz }
+    if (this.fixed) {
+      const f = this.fixed;
+      this.camera.position.set(f.x, f.y, f.z);
+      this.camera.lookAt(f.lx, f.ly, f.lz);
+      return;
+    }
     const k = this.sensitivity / Math.max(320, innerWidth);
     const moved = Math.abs(look.x) + Math.abs(look.y) > 0.5;
     this.idle = moved ? 0 : this.idle + dt;
