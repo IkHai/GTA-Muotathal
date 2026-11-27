@@ -748,7 +748,10 @@ export class Interiors {
       b.group.visible = false; scene.add(b.group);
       const S = b.spots, out = lm.home;
       this.points.push(
-        { where: null, p: out.door, r: 1.8, label: 'Betreten', go: () => this.go('block', S.frontIn, 0, 'block') },
+        // Wohnung erst nach dem Gespräch mit Bruno (vorher hat Lars den Schlüssel nicht)
+        { where: null, p: out.door, r: 1.8, label: 'Betreten', go: () => this.go('block', S.frontIn, 0, 'block'),
+          locked: () => { const st = this.game.story; return !!st && ['park', 'club', 'bruno'].includes(st.step); },
+          lockedMsg: 'Abgeschlossen. Den Schlüssel bekommst du von Bruno.' },
         { where: 'block', p: S.front, r: 1.0, label: 'Hinaus', go: () => this.go(null, out.door, out.heading + Math.PI, null, out.heading) },
         { where: 'block', p: S.bed, r: 1.2, label: 'Schlafen', go: () => this.sleep() },
       );
@@ -766,6 +769,10 @@ export class Interiors {
       if (py === undefined && this.inside) continue;
       const d = Math.hypot(pos.x - a.p.x, pos.z - a.p.z);
       if (d < a.r && d < bestD) { bestD = d; best = a; }
+    }
+    if (best && best.locked && best.locked()) {
+      const msg = best.lockedMsg;
+      return { ...best, label: 'Abgeschlossen', go: () => this.game.toast(msg, 3) };
     }
     return best;
   }

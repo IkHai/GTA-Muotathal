@@ -1,0 +1,37 @@
+# Prüft vor jedem Merge die Spielwelt im Stalden automatisch (tools/check-world.mjs):
+# Gebäude eben auf dem Boden, keine Kanten/Inseln/Podeste, Zäune ohne Überkreuzung,
+# Parkplatz befahrbar, Wohnung erst nach Bruno. Bilder aus Spielerhöhe als Download.
+name: Weltprüfung
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Browser installieren
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.49.1
+          npx playwright install --with-deps chromium
+
+      - name: Welt prüfen
+        run: node tools/check-world.mjs check-output
+
+      - name: Bilder aus Spielerhöhe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weltpruefung-bilder
+          path: check-output/

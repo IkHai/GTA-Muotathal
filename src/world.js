@@ -9,6 +9,8 @@ import { prepareRivers, drawRivers, installRiverGround, carveRiverBed } from './
 import { findLandmark, decorateLandmark } from './landmarks.js';
 import { buildClub, buildBlock } from './handmade.js';
 import { buildHaus, buildShop, buildImbiss } from './shops.js';
+import { buildTownGround, townGroundMesh } from './townground.js';
+import { frameFromFootprint } from './handmade.js';
 
 // Kachelgrösse für Gelände und Details. Nur Kacheln in der Nähe werden fein gezeichnet.
 const CHUNK = 500;
@@ -74,6 +76,14 @@ async function loadAerial(url, size) {
   };
 }
 
+// Stalden-Kern mit feinem Dorfboden (auf das 10-m-Raster ausgerichtet)
+const TOWN_RECT = { x0: 1370, z0: -140, x1: 1590, z1: 0 };
+function orientPts(pts) {
+  let area = 0;
+  for (let i = 0; i < pts.length; i++) { const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % pts.length]; area += x1 * z2 - x2 * z1; }
+  return area < 0 ? pts.reverse() : pts;
+}
+
 function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
   const terrain = new Terrain(meta, heights, land);
   terrain.aerial = aerial;
@@ -84,6 +94,20 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
   const net = buildRoadNet(osm.roads, terrain);
   carveRiverBed(rivers, terrain);
   installRiverGround(rivers, terrain);
+  // Dorfboden im Stalden: fein, bündig mit Strassen und Gehwegen, eben unter den eigenen Gebäuden
+  const pads = [];
+  for (const b of osm.buildings) {
+    const lm = findLandmark(b);
+    if (!lm || !lm.custom) continue;
+    const F = { ...frameFromFootprint(orientPts(toPts(b.p)), terrain) };
+    // nur so gross wie das gebaute Modell (sonst bleibt hinter kleineren Modellen ein Plateau stehen)
+    const size = { shop: [11, 8.5], imbiss: [7.2, 4.6], haus: [11.5, 10] }[lm.custom];
+    if (size) { F.width = Math.min(F.width, size[0]); F.depth = Math.min(F.depth, size[1]); }
+    let gap = 1;
+    for (let d = 0.5; d < 16; d += 0.25) { const [x, z] = F.toWorld(0, -d); const r = terrain.roadAt(x, z, 0); if (r === r) { gap = d; break; } }
+    pads.push({ id: lm.id, F, ramp: Math.max(1, gap - 2.1) });
+  }
+  const fine = buildTownGround(terrain, rivers, TOWN_RECT, pads);
   const colliders = new Colliders();
   const rng = makeRng(4417);
   const half = terrain.half;
@@ -111,6 +135,21 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
       scene.add(ch.lod0, ch.lod1);
       chunks.push(ch);
     }
+  }
+
+  // feiner Dorfboden: eigenes Netz, gleiche Farben wie das Gelände
+  {
+    const vert = buildTerrainChunk(terrain, 0, 0, 'color', mat);
+    // Farben an den 10-m-Knoten wie im groben Gelände, dazwischen weich interpoliert
+    const node = new Map(), res = terrain.res;
+    const nc = (i, j) => { const k = i + ',' + j; if (!node.has(k)) node.set(k, vert(-half + i * res, -half + j * res).slice(6, 9)); return node.get(k); };
+    const colorAt = (x, z) => {
+      const fx = (x + half) / res, fz = (z + half) / res, i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
+      const a = nc(i, j), b = nc(i + 1, j), c = nc(i, j + 1), d = nc(i + 1, j + 1);
+      return [0, 1, 2].map((k) => (a[k] * (1 - u) + b[k] * u) * (1 - v) + (c[k] * (1 - u) + d[k] * u) * v);
+    };
+    const m = townGroundMesh(fine, colorAt, mat);
+    scene.add(m);
   }
 
   // ---------- Strassen ----------
@@ -147,10 +186,7 @@ function buildWorld(scene, meta, heights, land, osm, backdrop, aerial) {
     const lm = findLandmark(b);
     if (lm && lm.custom) {
       // von Hand modelliert (Concept Art), nicht aus dem OSM-Grundriss generiert
-      let pts = toPts(b.p);
-      let area = 0;
-      for (let i = 0; i < pts.length; i++) { const [x1, z1] = pts[i], [x2, z2] = pts[(i + 1) % pts.length]; area += x1 * z2 - x2 * z1; }
-      if (area < 0) pts = pts.reverse();
+      const pts = orientPts(toPts(b.p));
       const r = ({ club: buildClub, block: buildBlock, haus: buildHaus, shop: buildShop, imbiss: buildImbiss })[lm.custom](pts, { terrain, chunkAt, colliders });
       houses.push(r.info);
       landmarks[lm.id] = r.result;
@@ -594,18 +630,24 @@ function buildTerrainChunk(terrain, x0, z0, step, mat) {
     const k = 0.94 + hash * 0.1;
     return [x, y, z, nx / l, ny / l, nz / l, c.r * k, c.g * k, c.b * k];
   };
+  if (step === 'color') return vert;
   const verts = [];
   for (let j = 0; j <= cells; j++) for (let i = 0; i <= cells; i++) verts.push(vert(x0 + i * size, z0 + j * size));
   const V = (i, j) => verts[j * (cells + 1) + i];
   const put = (v) => { pos.push(v[0], v[1], v[2]); nor.push(v[3], v[4], v[5]); col.push(v[6], v[7], v[8]); };
+  const fine = step === 1 ? terrain.fine : null;
   for (let j = 0; j < cells; j++) {
     for (let i = 0; i < cells; i++) {
+      // im Stalden zeichnet der feine Dorfboden (townground.js)
+      if (fine) { const cx = x0 + i * size, cz = z0 + j * size; if (cx >= fine.x0 && cx + size <= fine.x1 && cz >= fine.z0 && cz + size <= fine.z1) continue; }
       put(V(i, j)); put(V(i, j + 1)); put(V(i + 1, j));
       put(V(i + 1, j)); put(V(i, j + 1)); put(V(i + 1, j + 1));
     }
   }
   // "Schürze" am Rand, damit zwischen grober und feiner Kachel keine Lücken sichtbar sind
   const skirt = (A, B) => {
+    // im feinen Dorfboden keine Schürze (sie stünde als Wand aus dem Boden)
+    if (terrain.fine && [A, B].every((v) => v[0] >= terrain.fine.x0 && v[0] <= terrain.fine.x1 && v[2] >= terrain.fine.z0 && v[2] <= terrain.fine.z1)) return;
     const A2 = A.slice(), B2 = B.slice(); A2[1] -= 25; B2[1] -= 25;
     for (const v of [A, B, A2, A2, B, B2, A, A2, B, A2, B2, B]) put(v);
   };

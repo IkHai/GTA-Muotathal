@@ -51,8 +51,14 @@ export class Terrain {
     return this.land[j * this.n + i];
   }
 
-  // Höhe an beliebiger Stelle (gleiche Dreiecksaufteilung wie das gezeichnete Gelände)
+  // Höhe an beliebiger Stelle. Im Stalden gilt der feine Dorfboden (townground.js).
   heightAt(x, z) {
+    if (this.fine && this.fine.inside(x, z)) return this.fine.at(x, z);
+    return this.rawHeightAt(x, z);
+  }
+
+  // Höhe aus dem groben Raster (gleiche Dreiecksaufteilung wie das gezeichnete Gelände)
+  rawHeightAt(x, z) {
     const fx = (x + this.half) / this.res, fz = (z + this.half) / this.res;
     const last = this.n - 2;
     const i = Math.max(0, Math.min(last, Math.floor(fx)));

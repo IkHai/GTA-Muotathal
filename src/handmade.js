@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { padLevel, forecourt, paving, drapeRect } from './townground.js';
 import { Builder } from './builder.js';
 
 // Von Hand gebaute Story-Gebäude (Hell's Club, Wohnblock): eigene Geometrie statt
@@ -188,8 +189,11 @@ export function frameFromFootprint(pts, terrain) {
   const ground = pts.concat(around).map(([x, z]) => terrain.heightAt(x, z));
   const gMax = Math.max(...ground);
   const frontPts = around.filter((_, i) => i % 4 < 2);
-  const gMin = Math.max(...pts.concat(frontPts).map(([x, z]) => terrain.heightAt(x, z))) + 0.05;
-  const drop = gMin - Math.min(...raw);      // so tief muss der Sockel hinunter
+  let gMin = Math.max(...pts.concat(frontPts).map(([x, z]) => terrain.heightAt(x, z))) + 0.05;
+  // im Stalden liegt das Gebäude auf einem ebenen Pad auf Gehweghöhe (townground.js)
+  const pad = padLevel(terrain, ox, oz);
+  if (pad === pad) gMin = pad + 0.03;
+  const drop = Math.max(0.3, gMin - Math.min(...raw));      // so tief muss der Sockel hinunter
   return { ox, oz, fx, fz, rotY, width, depth, gMin, gMax, drop, nx: front.nx, nz: front.nz, L, W, ax, az, toWorld };
 }
 
@@ -595,6 +599,7 @@ export function buildClub(pts, ctx) {
   }
 
   (chunkAt(F.ox, F.oz).extra ||= []).push(group);
+  (chunkAt(F.ox, F.oz).extra ||= []).push(forecourt(terrain, F, -hw - 5, hw + 5, 10, paving(0x6e6b66)));          // bis zu den Nachbarn: keine Restfläche
 
   // Kollision: Hauptkörper, Treppe (begehbar), Mülltonnen, Pflanzen
   const oy = F.gMin;
@@ -632,23 +637,22 @@ export function buildClub(pts, ctx) {
   if (lot) {
     const [lx, lz] = lot;
     const [px, pz] = F.toWorld(lx, lz);
-    let lowest = Infinity, highest = -Infinity;
-    for (const [ox, oz] of [[-lotW / 2, -lotL / 2], [lotW / 2, -lotL / 2], [-lotW / 2, lotL / 2], [lotW / 2, lotL / 2], [0, 0]]) {
-      const [wx, wz] = F.toWorld(lx + ox, lz + oz);
-      const h = terrain.heightAt(wx, wz); lowest = Math.min(lowest, h); highest = Math.max(highest, h);
-    }
-    const top = highest + 0.06, depth = top - lowest + 0.3;
-    const P = new Builder();
-    P.box(0, -depth / 2 + 0.02, 0, lotW, depth, lotL, 0x3b3c3e);                         // Belag, bis in den Boden
-    P.box(0, -depth / 2 - 0.02, 0, lotW + 0.3, depth, lotL + 0.3, 0x8a867e);            // Randstein
-    for (let k = -2; k <= 2; k++) P.box(0.4, 0.035, k * 2.6, lotW - 1.4, 0.02, 0.12, 0xe8e8e8);
-    P.box(lotW / 2 - 0.3, 0.035, 0, 0.12, 0.02, lotL - 0.6, 0xe8e8e8);
-    const pm = P.build(new THREE.MeshLambertMaterial({ vertexColors: true }));
-    pm.receiveShadow = true;
-    pm.position.set(px, top, pz); pm.rotation.y = F.rotY;
-    (chunkAt(px, pz).extra ||= []).push(pm);
-    const walkBox = colliders.addOrientedBox(px, pz, Math.cos(F.rotY), -Math.sin(F.rotY), lotW / 2 + 0.15, lotL / 2 + 0.15, top - depth, top + 0.04);
-    walkBox.walk = true;
+    // Asphalt liegt direkt auf dem (ebenen) Dorfboden und reicht bis an die Strasse: befahrbar, ohne Kante
+    const out = lx < 0 ? -1 : 1;                       // Richtung weg vom Club
+    const reach = (x, z, dx, dz) => {
+      for (let d = 0; d < 10; d += 0.25) { const [wx, wz] = F.toWorld(x + dx * d, z + dz * d); const r = terrain.roadAt(wx, wz, 0); if (r === r) return d + 0.3; }
+      return 0;
+    };
+    const eo = reach(lx + out * lotW / 2, lz, out, 0), ef = reach(lx, lz - lotL / 2, 0, -1);
+    const xa = Math.min(lx - lotW / 2 - (out < 0 ? eo : 0), lx + lotW / 2), xb = Math.max(lx + lotW / 2 + (out > 0 ? eo : 0), lx - lotW / 2);
+    const asphalt = (x, z) => ((Math.floor(x * 1.3) * 7 + Math.floor(z * 1.3) * 3) % 5 === 0 ? 0x3e3f42 : 0x434447);
+    const ext = chunkAt(px, pz).extra ||= [];
+    const onWalk = (x, z) => { const w = terrain.walkAt ? terrain.walkAt(x, z) : NaN; return w === w; };
+    ext.push(drapeRect(terrain, F, xa, xb, lz - lotL / 2 - ef, lz + lotL / 2, asphalt, { clip: onWalk }));
+    // Markierungen: Stellplätze quer, Abschlusslinie an der Hausseite
+    for (let k = -2; k <= 2; k++) ext.push(drapeRect(terrain, F, lx - lotW / 2 + 0.6, lx + lotW / 2 - 0.6, lz + k * 2.6 - 0.06, lz + k * 2.6 + 0.06, 0xe4e4e0, { lift: 0.04, step: 1 }));
+    const xe = lx - out * (lotW / 2 - 0.4);
+    ext.push(drapeRect(terrain, F, xe - 0.06, xe + 0.06, lz - 2 * 2.6, lz + 2 * 2.6, 0xe4e4e0, { lift: 0.04, step: 1 }));
     // Auto parkt quer zur Wand, Front zum Haus
     const side = lx < 0 ? 1 : -1;
     result.parking = { x: px, z: pz, heading: F.rotY + (side > 0 ? Math.PI / 2 : -Math.PI / 2) };
@@ -664,13 +668,13 @@ export function buildBlock(pts, ctx) {
   const group = new THREE.Group();
   group.position.set(F.fx, F.gMin, F.fz);
   group.rotation.y = F.rotY;
-  const floors = 4, FH = 2.9, G0 = 0.9;            // Hochparterre
+  const floors = 4, FH = 2.9, G0 = 0.18;           // Erdgeschoss eine Stufe über dem Vorplatz
   const H = G0 + floors * FH;
   const pitch = 0.3, ov = 0.7;
   const ridge = H + (D / 2) * Math.tan(pitch);     // First parallel zur Front
 
   const pos = [], uv = [];
-  boxWalls(pos, uv, W, D, G0 + 0.6, H, 5);
+  boxWalls(pos, uv, W, D, G0 + 0.45, H, 5);
   // Giebel links und rechts
   for (const [x, sgn] of [[-W / 2, -1], [W / 2, 1]]) {
     const a = [x, H, D * (sgn > 0 ? 1 : 0)], b = [x, H, D * (sgn > 0 ? 0 : 1)], c = [x, ridge, D / 2];
@@ -678,7 +682,7 @@ export function buildBlock(pts, ctx) {
   }
   group.add(texMesh(pos, uv, new THREE.MeshLambertMaterial({ map: plasterTex('#a9a194', 'block') })));
   const low = [], lowUv = [];
-  boxWalls(low, lowUv, W, D, -1.8 - F.drop, G0 + 0.6, 4);
+  boxWalls(low, lowUv, W, D, -1.8 - F.drop, G0 + 0.45, 4);           // niedriger Sockelstreifen
   group.add(texMesh(low, lowUv, new THREE.MeshLambertMaterial({ map: plasterTex('#6f6a62', 'blocklow') })));
   // Dach (First parallel zur Front)
   const rp = [], ru = [];
@@ -727,13 +731,14 @@ export function buildBlock(pts, ctx) {
   B.box(ex, G0 + 1.05, -0.09, 0.08, 2.1, 0.02, 0x2a2a2a);
   B.box(ex, G0 + 2.45, -0.7, 2.4, 0.15, 1.4, 0x6a6a68);
   const walk = [];
-  B.box(ex, G0 / 2 - 0.5, -0.45, 2.2, G0 + 1.0, 0.9, 0x8a8680);                              // Podest vor der Tür
-  walk.push([ex, -0.45, 1.1, 0.45, G0]);
-  const footZ = frontSteps(B, walk, F, terrain, ex, G0 - 0.17, 2.0, -0.9);
+  B.box(ex, G0 / 2 - 0.1, -0.5, 2.0, G0 + 0.2, 1.0, 0x8a8680);                              // eine Stufe vor der Tür
+  B.box(ex, G0 - 0.01, -0.98, 2.0, 0.02, 0.05, 0x6a6660);
+  walk.push([ex, -0.5, 1.0, 0.5, G0]);
+  const footZ = -1.0;
   B.box(ex + 1.25, G0 + 1.2, -0.1, 0.9, 0.6, 0.18, 0x8a6b3a);
   B.box(ex - 0.9, G0 + 1.3, -0.06, 0.2, 0.3, 0.04, 0xbcb6a8);
   // Fallrohre, Satellitenschüssel, Mülltonnen
-  for (const s of [-1, 1]) B.box(s * (W / 2 - 0.12), H / 2, -0.12, 0.12, H + 1.5, 0.12, 0x5a5a58);
+  for (const s of [-1, 1]) B.box(s * (W / 2 - 0.12), (H - 0.3) / 2, -0.12, 0.12, H - 0.3, 0.12, 0x5a5a58);    // bis unter die Traufe
   B.shape(new THREE.SphereGeometry(0.45, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), W / 2 - 2, G0 + 3 * FH + 1.6, -0.35, 1, 1, 0.35, 0xd8d8d0, 0, Math.PI / 2);
   for (let k = 0; k < 3; k++) {
     const bx = ex + 2.6 + k * 0.75, [bwx, bwz] = F.toWorld(bx, -0.6), g = terrain.heightAt(bwx, bwz) - F.gMin;
@@ -755,6 +760,8 @@ export function buildBlock(pts, ctx) {
   group.add(num);
 
   (chunkAt(F.ox, F.oz).extra ||= []).push(group);
+  // Vorplatz: Pflaster von der Fassade bis zum Gehweg, seitlich etwas breiter als das Haus
+  (chunkAt(F.ox, F.oz).extra ||= []).push(forecourt(terrain, F, -W / 2 - 2, W / 2 + 2, 14, paving(0x8c877e)));
   colliders.addOrientedBox(F.ox, F.oz, F.ax, F.az, F.L / 2, F.W / 2, F.gMin - 2, F.gMin + ridge + 1);
   {
     const c = Math.cos(F.rotY), s = Math.sin(F.rotY);

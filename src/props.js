@@ -60,6 +60,21 @@ export function buildProps(scene, world) {
 
   // ---------- Zäune ----------
   let fences = 0;
+  // Zäune dürfen sich nie kreuzen oder berühren (auch nicht Zäune verschiedener Strassen)
+  const placed = [];
+  const segDist = (a, b) => {
+    const [ax, az, bx, bz] = a, [cx, cz, dx, dz] = b;
+    const o = (px, pz, qx, qz, rx, rz) => (qx - px) * (rz - pz) - (qz - pz) * (rx - px);
+    const d1 = o(ax, az, bx, bz, cx, cz), d2 = o(ax, az, bx, bz, dx, dz), d3 = o(cx, cz, dx, dz, ax, az), d4 = o(cx, cz, dx, dz, bx, bz);
+    if (d1 * d2 < 0 && d3 * d4 < 0) return 0;
+    const pd = (px, pz, x1, z1, x2, z2) => {
+      const L2 = (x2 - x1) ** 2 + (z2 - z1) ** 2 || 1e-6;
+      let t = ((px - x1) * (x2 - x1) + (pz - z1) * (z2 - z1)) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+      return Math.hypot(px - x1 - (x2 - x1) * t, pz - z1 - (z2 - z1) * t);
+    };
+    return Math.min(pd(ax, az, cx, cz, dx, dz), pd(bx, bz, cx, cz, dx, dz), pd(cx, cz, ax, az, bx, bz), pd(dx, dz, ax, az, bx, bz));
+  };
+  const clashes = (q, own) => placed.some((p) => segDist(p, q) < 0.6) || own.slice(0, -1).some((p) => segDist(p.slice(1, 5), q) < 0.6);
   for (const { r, pts } of roads) {
     if (!['residential', 'unclassified', 'service', 'track', 'tertiary', 'secondary', 'living_street'].includes(r.t)) continue;
     const hw = (r.w || 4) / 2;
@@ -81,6 +96,9 @@ export function buildProps(scene, world) {
         const pk = world.landmarks.club && world.landmarks.club.parking;
         if (pk && Math.hypot(ax - pk.x, az - pk.z) < 10) continue;
         if (onRoad(ax, az, 0.3) || onRoad(bx, bz, 0.3) || !free(ax, az, 0.3) || !free(bx, bz, 0.3)) continue;
+        if (onRoad((ax + bx) / 2, (az + bz) / 2, 0.8) || (t.isPaved && (t.isPaved(ax, az) || t.isPaved(bx, bz)))) continue;
+        if (t.walkAt) { const w1 = t.walkAt(ax, az), w2 = t.walkAt(bx, bz); if (w1 === w1 || w2 === w2) continue; }
+        if (clashes([ax, az, bx, bz], segs)) continue;
         const ya = t.heightAt(ax, az), yb = t.heightAt(bx, bz);
         if (Math.abs(ya - yb) > 1.2) continue;
         segs.push([i, ax, az, bx, bz, ya, yb, land]);
@@ -95,6 +113,7 @@ export function buildProps(scene, world) {
     }
   }
   function drawFence(i, ax, az, bx, bz, ya, yb, land, last) {
+    placed.push([ax, az, bx, bz]);
     const len = Math.hypot(bx - ax, bz - az), ry = rot((bx - ax) / len, (bz - az) / len);
     const slope = Math.atan2(yb - ya, len);
     const mx = (ax + bx) / 2, mz = (az + bz) / 2, my = (ya + yb) / 2;
@@ -304,5 +323,5 @@ export function buildProps(scene, world) {
   mesh.castShadow = true; mesh.receiveShadow = true;
   group.add(mesh);
   world.props = { carSpots, signSpots };
-  return { fences, fountain, benches, cars, signs };
+  return { fences, fountain, benches, cars, signs, fenceSegs: placed };
 }

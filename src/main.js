@@ -8,6 +8,7 @@ import { Minimap, BigMap } from './minimap.js';
 import { Grass } from './grass.js';
 import { Zone } from './zone.js';
 import { buildProps } from './props.js';
+import { selfCheck } from './selfcheck.js';
 import { Traffic } from './traffic.js';
 import { Story, loadSave, setSaveKey } from './story.js';
 import { buildMenu, saveKeyFor } from './profiles.js';
@@ -106,7 +107,7 @@ const bigMap = new BigMap(minimap, world);
 const grass = new Grass(scene, world);
 const zone = new Zone(scene, world);
 const props = buildProps(scene, world);
-console.log('Dorf', JSON.stringify({ ...props, fountain: !!props.fountain }));
+console.log('Dorf', JSON.stringify({ ...props, fenceSegs: props.fenceSegs.length, fountain: !!props.fountain }));
 minimap.zone = bigMap.zone = zone;
 let zoneLast = null, zoneWarn = 0;
 
@@ -344,4 +345,4 @@ async function startGame(name) {
 buildMenu(document.getElementById('profiles'), startGame);
 
 // Für Tests im Browser
-window.__game = { startGame, get playerName() { return playerName; }, player, cars, input, follow, world, story, interiors, enterCar, exitCar, get currentCar() { return currentCar; } };
+window.__game = { scene, camera, props, selfCheck: () => selfCheck(window.__game), startGame, get playerName() { return playerName; }, player, cars, input, follow, world, story, interiors, enterCar, exitCar, get currentCar() { return currentCar; } };

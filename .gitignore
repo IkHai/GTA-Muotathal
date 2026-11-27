@@ -48,3 +48,7 @@ desktop.ini
 # Android-Signaturschlüssel nie hochladen
 *.keystore
 *.jks
+
+# Ergebnis der Weltprüfung (tools/check-world.mjs)
+/check-output/
+/node_modules/

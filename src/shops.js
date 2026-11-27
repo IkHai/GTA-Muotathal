@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { forecourt, paving, drapeRect } from './townground.js';
 import { Builder } from './builder.js';
 import { canvasTex, rnd, roofTex, plasterTex, graffitiTex, frameFromFootprint, quad, texMesh, roofMeshes, boxWalls, windowAt, frontSteps } from './handmade.js';
 
@@ -136,6 +137,12 @@ function flowerBox(B, x, y, z, w, ry = 0) {
 }
 
 // Eisengeländer entlang x von xa bis xb auf Höhe y (Boden), bei z
+// Stange zwischen zwei Punkten (lokal). Richtung exakt aus den Endpunkten, nichts wird geschätzt.
+function bar(B, a, b, t, color) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L = Math.hypot(dx, dy, dz);
+  B.shape(new THREE.BoxGeometry(t, t, L), (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2, 1, 1, 1, color, Math.atan2(dx, dz), Math.atan2(-dy, Math.hypot(dx, dz)), 0);
+}
+
 function ironRail(B, xa, xb, y, z, h = 1.0, color = 0x1c1c1e) {
   const L = xb - xa;
   B.box((xa + xb) / 2, y + h, z, L, 0.05, 0.06, color);
@@ -230,41 +237,37 @@ export function buildHaus(pts, { terrain, chunkAt, colliders }) {
   for (let f = 1; f <= floors; f++) B.box(0, G0 + f * FH - 0.05, -0.05, W + 0.1, 0.12, 0.12, 0xc9a55e);
   // Fensterachsen: auf der Balkonseite schmaler, sonst Doppelfenster
   const axes = [-0.34, -0.06, 0.2, 0.38].map((u) => u * W * -sL);
-  const balcX0 = sL * (W / 2 - 3.6), balcX1 = sL * (W / 2 + 0.9);     // Balkonturm an der Ecke
+  const balcX0 = sL * (W / 2 - 3.4), balcX1 = sL * (W / 2 - 0.15);    // Balkonturm an der Ecke, innerhalb der Hausbreite
   const inBalc = (x) => (x - balcX0) * (x - balcX1) < 0;
   for (let f = 0; f < floors; f++) {
     const y = G0 + f * FH + 1.45;
     for (const [i, x] of axes.entries()) {
       if (f === 0 && i === 2) continue;                                  // Haustür
+      if (f > 0 && inBalc(x)) continue;                                  // dort ist die Balkontür
       windowAt(B, 'f', x, y, W, D, { w: 1.2, h: 1.4, shutter: f > 0 || i !== 1 ? shutter : null, curtain: 0xe8e0d0, frame: 0xe8e2d4, glass: 0x2a2a30 });
       if (f === 1 && !inBalc(x)) flowerBox(B, x, y - 0.88, -0.2, 1.2);
     }
     // Balkontür im Balkonturm
-    windowAt(B, 'f', sL * (W / 2 - 1.6), G0 + f * FH + 1.25, W, D, { w: 0.9, h: 2.1, curtain: 0xe8e0d0, frame: 0xe8e2d4, glass: 0x2a2a30 });
+    if (f > 0) windowAt(B, 'f', (balcX0 + balcX1) / 2, G0 + f * FH + 1.25, W, D, { w: 0.9, h: 2.1, curtain: 0xe8e0d0, frame: 0xe8e2d4, glass: 0x2a2a30 });
     for (const side of ['l', 'r']) for (const t of [D * 0.3, D * 0.72]) windowAt(B, side, t, y, W, D, { w: 1.0, h: 1.3, shutter, curtain: 0xe8e0d0, frame: 0xe8e2d4 });
     for (const t of [-W * 0.25, W * 0.25]) windowAt(B, 'b', t, y, W, D, { w: 1.1, h: 1.3, shutter, curtain: 0xe8e0d0, frame: 0xe8e2d4 });
   }
-  // Balkonturm (zwei Balkone übereinander auf Stützen, Brüstung aus Platten)
+  // Balkonturm: zwei Balkone übereinander, Betonplatte, Eisengeländer, zwei Stützen bis auf den Boden
+  const bLo = Math.min(balcX0, balcX1), bHi = Math.max(balcX0, balcX1), bD = 1.5;
   for (const f of [1, 2]) {
     const y = G0 + f * FH;
-    const cx = (balcX0 + balcX1) / 2, wB = Math.abs(balcX1 - balcX0);
-    B.box(cx, y - 0.1, -0.8, wB, 0.2, 1.6, 0xb8ad98);
-    B.box(cx, y + 0.5, -1.58, wB, 1.0, 0.06, 0xa9a08c);
-    B.box(balcX1, y + 0.5, -0.8, 0.06, 1.0, 1.6, 0xa9a08c);
-    B.box(cx, y + 1.02, -1.6, wB + 0.06, 0.06, 0.1, 0x8a8270);
-    // Seitlich über die Hauswand hinaus: Boden auch dort
-    B.box(sL * (W / 2 + 0.45), y - 0.1, D * 0.2, 0.9, 0.2, D * 0.4 + 1.6, 0xb8ad98);
-    B.box(sL * (W / 2 + 0.88), y + 0.5, D * 0.2, 0.06, 1.0, D * 0.4 + 1.6, 0xa9a08c);
+    B.box((bLo + bHi) / 2, y - 0.09, -bD / 2, bHi - bLo, 0.18, bD, 0xb8ad98);
+    ironRail(B, bLo + 0.05, bHi - 0.05, y, -bD + 0.05, 1.0, 0x2a2a2c);
+    for (const x of [bLo + 0.05, bHi - 0.05]) for (let z = -bD + 0.2; z < -0.05; z += 0.16) B.box(x, y + 0.56, z, 0.025, 0.9, 0.025, 0x2a2a2c);
+    for (const x of [bLo + 0.05, bHi - 0.05]) B.box(x, y + 1.0, -bD / 2, 0.05, 0.05, bD, 0x2a2a2c);
   }
+  for (const x of [bLo + 0.12, bHi - 0.12]) B.box(x, (G0 + FH - 0.18) / 2, -bD + 0.12, 0.2, G0 + FH - 0.18, 0.2, 0xcfc6b4);
   // Badetuch über der Brüstung, Satellitenschüssel
   const tx = (balcX0 + balcX1) / 2 + sL * 0.6;
-  for (let k = 0; k < 6; k++) B.box(tx - 0.3 + k * 0.12, G0 + 2 * FH + 0.75, -1.63, 0.12, 0.62, 0.02, k % 2 ? 0xf0ece0 : 0xc0262a);
-  B.shape(new THREE.SphereGeometry(0.42, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), (balcX0 + balcX1) / 2 - sL * 0.8, G0 + 2 * FH + 1.6, -0.35, 1, 1, 0.3, 0xdedbd2, 0, Math.PI / 2);
-  // Stützen
-  for (const z of [-1.55]) B.box(balcX1 - sL * 0.12, (G0 + FH) / 2 - 0.5, z, 0.25, G0 + FH + 1, 0.25, 0xcfc6b4);
+  for (let k = 0; k < 6; k++) B.box(tx - 0.3 + k * 0.12, G0 + 2 * FH + 0.72, -bD + 0.0, 0.12, 0.6, 0.02, k % 2 ? 0xf0ece0 : 0xc0262a);
   // Langer Balkon im 2. OG auf der anderen Seite mit Eisengeländer
   {
-    const xa = -sL * (W / 2 - 0.3), xb = sL * (W / 2 - 3.9);
+    const xa = -sL * (W / 2 - 0.3), xb = sL * (W / 2 - 3.8);
     const lo = Math.min(xa, xb), hi = Math.max(xa, xb), y = G0 + 2 * FH;
     B.box((lo + hi) / 2, y - 0.08, -0.55, hi - lo, 0.16, 1.1, 0xb8ad98);
     ironRail(B, lo, hi, y, -1.08);
@@ -279,13 +282,28 @@ export function buildHaus(pts, { terrain, chunkAt, colliders }) {
   B.box(ex, G0 + 2.45, -0.5, 1.8, 0.08, 1.0, 0x5a5a58);
   for (const s of [-1, 1]) B.box(ex + s * 0.85, G0 + 2.3, -0.9, 0.03, 0.3, 0.03, 0x2a2a2a);
   glow.box(ex + 0.85, G0 + 2.05, -0.12, 0.2, 0.26, 0.12, 0xffd890);
-  B.box(ex, G0 / 2 - 0.4, -0.45, 1.8, G0 + 0.8, 0.9, 0x8e8a84);
-  walk.push([ex, -0.45, 0.9, 0.45, G0]);
-  const foot = frontSteps(B, walk, F, terrain, ex, G0 - 0.17, 1.6, -0.9);
-  for (const s of [-1, 1]) {
-    const len = Math.hypot(-0.9 - foot, G0) + 0.3;
-    B.shape(new THREE.BoxGeometry(0.05, 0.05, len), ex + s * 0.95, G0 / 2 + 0.9, (foot - 0.9) / 2, 1, 1, 1, 0x1c1c1e, 0, Math.atan2(G0, -0.9 - foot), 0);
-    B.box(ex + s * 0.95, 0.45, foot + 0.05, 0.04, 0.9 + G0 * 0, 0.04, 0x1c1c1e);
+  // Treppe: Podest vor der Tür, Stufen hinunter auf den Vorplatz, seitliche Mauern, Handläufe exakt entlang der Stufen
+  const nSt = Math.round(G0 / 0.17), rise = G0 / nSt, run = 0.3, land = 0.9, sw2 = 1.5;
+  const foot = -land - (nSt - 1) * run;
+  B.box(ex, G0 / 2 - 0.15, -land / 2, sw2, G0 + 0.3, land, 0x9a958c);
+  walk.push([ex, -land / 2, sw2 / 2, land / 2, G0]);
+  for (let i = 1; i <= nSt - 0 && i < nSt + 1; i++) {
+    const top = G0 - rise * i, zc = -land - (i - 0.5) * run;
+    if (top < 0.02) break;
+    B.box(ex, (top - 0.15) / 2, zc, sw2, top + 0.15, run, i % 2 ? 0x948f86 : 0x9a958c);
+    walk.push([ex, zc, sw2 / 2, run / 2, top]);
+  }
+  for (const s2 of [-1, 1]) {
+    const xr = ex + s2 * (sw2 / 2 + 0.1);
+    // Wange: Mauer bis Podesthöhe, zur Strasse hin abgetreppt
+    B.box(xr, (G0 + 0.1) / 2 - 0.05, -land / 2, 0.2, G0 + 0.2, land, 0x8a857c);
+    for (let i = 1; i < nSt; i++) { const top = G0 - rise * i + 0.1; B.box(xr, top / 2 - 0.05, -land - (i - 0.5) * run, 0.2, top + 0.1, run, 0x8a857c); }
+    // Handlauf: Pfosten oben und unten, Stange parallel zur Treppe
+    const yTop = G0 + 0.9, zTop = -0.15, zBot = foot + 0.15, yBot = 0.9 + rise * 0.5;
+    B.box(xr, (G0 + 0.1 + yTop) / 2, zTop, 0.04, yTop - G0 - 0.1, 0.04, 0x1c1c1e);
+    B.box(xr, (0.1 + yBot) / 2, zBot, 0.04, yBot - 0.1, 0.04, 0x1c1c1e);
+    bar(B, [xr, yTop, zTop], [xr, yTop, -land], 0.05, 0x1c1c1e);
+    bar(B, [xr, yTop, -land], [xr, yBot, zBot], 0.05, 0x1c1c1e);
   }
   B.box(ex - sL * 1.35, G0 + 1.25, -0.08, 0.75, 0.45, 0.14, 0x8a8c8e);
   for (let k = 0; k < 4; k++) B.box(ex - sL * 1.35 - 0.27 + k * 0.18, G0 + 1.33, -0.16, 0.12, 0.03, 0.02, 0x2a2a2a);
@@ -295,11 +313,10 @@ export function buildHaus(pts, { terrain, chunkAt, colliders }) {
     for (let k = 0; k < 6; k++) B.box(x - 0.38 + k * 0.15, 0.25, -0.06, 0.03, 0.4, 0.03, 0x3a3a3a);
   }
   // Fallrohre, Kamin, Antenne
-  for (const s of [-1, 1]) B.box(s * (W / 2 - 0.1), H / 2, -0.12, 0.12, H + 1.6, 0.12, 0x6a6a66);
+  // Fallrohre vom Boden bis unter die Dachrinne (nicht darüber hinaus)
+  for (const s of [-1, 1]) B.box(s * (W / 2 - 0.1), (H - 0.4) / 2, -0.12, 0.12, H - 0.4, 0.12, 0x6a6a66);
   B.box(-sL * W * 0.2, ridge + 0.2, D * 0.5, 0.7, 1.6, 0.7, 0xb0a596);
   B.box(-sL * W * 0.2, ridge + 1.05, D * 0.5, 0.85, 0.12, 0.85, 0x6a625a);
-  B.box(sL * W * 0.15, ridge + 1.2, D * 0.5, 0.05, 2.4, 0.05, 0x3a3a3a);
-  for (const [y, l] of [[ridge + 2.2, 1.6], [ridge + 1.8, 1.2], [ridge + 1.4, 0.9]]) B.box(sL * W * 0.15, y, D * 0.5, l, 0.03, 0.03, 0x3a3a3a);
   // Lukarne in der Dachfläche vorne
   {
     const y0 = H - 0.3, wD = 2.6;
@@ -323,6 +340,7 @@ export function buildHaus(pts, { terrain, chunkAt, colliders }) {
   const gm = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.8), lambert({ map: graffitiTex(41), transparent: true, depthWrite: false }));
   gm.position.set(ex - sL * 2.8, G0 + 0.9, -0.05); gm.rotation.y = Math.PI;
   group.add(gm);
+  (chunkAt(F.ox, F.oz).extra ||= []).push(forecourt(terrain, F, -W / 2 - 0.5, W / 2 + 0.5, 8, paving(0x8a857c)));
   finish(group, B, glow, F, chunkAt, colliders, walk, W, D, ridge + 1);
   const [dx, dz] = F.toWorld(ex, foot - 0.6);
   return { result: { id: 'haus', name: 'Wohnhaus', door: { x: dx, z: dz }, x: F.ox, z: F.oz, heading: F.rotY }, info: { x: F.ox, z: F.oz, pts, church: false } };
@@ -405,24 +423,10 @@ export function buildShop(pts, { terrain, chunkAt, colliders }) {
     B.shape(new THREE.ConeGeometry(0.35, 1.3, 8), px, py + 1.15, -1.1, 1, 1, 1, 0x2e5a2a);
     colliders.addCircle(...F.toWorld(px, -1.1), 0.35);
   }
-  // Kiesplatz vor dem Laden (nur wo keine Strasse ist)
-  {
-    let depth = 0;
-    for (let d = 0.5; d <= 6; d += 0.5) {
-      let hit = false;
-      for (let x = -W / 2 - 1; x <= W / 2 + 1; x += 1) { const [wx, wz] = F.toWorld(x, -d); if (terrain.roadAt(wx, wz, 0.3) === terrain.roadAt(wx, wz, 0.3)) hit = true; }
-      if (hit) break;
-      depth = d;
-    }
-    if (depth >= 1) {
-      let lowG = 0;
-      for (let x = -W / 2 - 1; x <= W / 2 + 1; x += 1) lowG = Math.min(lowG, groundY(F, terrain, x, -depth));
-      B.box(0, (lowG - 0.3) / 2 + 0.01, -depth / 2, W + 2, -lowG + 0.32, depth, 0x8e8778);
-      walk.push([0, -depth / 2, W / 2 + 1, depth / 2, 0.02]);
-    }
-  }
+  // Vorplatz (Pflaster) bis zum Gehweg, direkt auf dem Boden
+  (chunkAt(F.ox, F.oz).extra ||= []).push(forecourt(terrain, F, -W / 2 - 1.5, W / 2 + 1.5, 8, paving(0x8e8778)));
   // Fallrohr, Kamin
-  for (const s of [-1, 1]) B.box(s * (W / 2 - 0.1), H / 2, -0.15, 0.12, H, 0.12, 0x5a5a58);
+  for (const s of [-1, 1]) B.box(s * (W / 2 - 0.1), (H - 0.3) / 2, -0.15, 0.12, H - 0.3, 0.12, 0x5a5a58);
   B.box(-W * 0.22, ridge - 0.2, D * 0.35, 0.6, 1.6, 0.6, 0xcfc8ba);
   B.box(-W * 0.22, ridge + 0.65, D * 0.35, 0.75, 0.12, 0.75, 0x6a625a);
   // Holzbeige an der Seite
@@ -486,15 +490,15 @@ export function buildImbiss(pts, { terrain, chunkAt, colliders }) {
   plane(group, chalkTex(), -1.7, 1.75, -0.06, 0.95, 1.2);
   plane(group, posterTex('mt', 'Muotathal', 'Ferien im Tal', '#8ab8d8', '#3a6a9a'), -W / 2 + 0.55, 1.9, -0.06, 0.6, 0.9);
   plane(group, posterTex('aq', 'ALPENQUELL', 'erfrischt!', '#d84a3a', '#8a1a14'), W / 2 - 0.75, 1.75, -0.06, 0.6, 0.9);
-  // Kisten, Abfalleimer
+  // Getränkekisten und Abfalleimer an der Seitenwand hinten, nicht vor der Theke
   {
-    const kx = -W / 2 - 0.2, gy = groundY(F, terrain, kx, -0.5);
-    for (let k = 0; k < 3; k++) B.box(kx + (k > 1 ? 0.55 : 0), gy + 0.17 + (k % 2) * 0.34, -0.45, 0.5, 0.33, 0.36, k % 2 ? 0xd8b020 : 0xb8241c);
-    const bx = -0.95, by = groundY(F, terrain, bx, -0.45);
-    B.shape(new THREE.CylinderGeometry(0.25, 0.23, 0.9, 10), bx, by + 0.45, -0.45, 1, 1, 1, 0x8c8e90);
-    B.shape(new THREE.SphereGeometry(0.25, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2), bx, by + 0.9, -0.45, 1, 0.6, 1, 0x8c8e90);
-    colliders.addCircle(...F.toWorld(bx, -0.45), 0.28);
-    colliders.addCircle(...F.toWorld(kx + 0.25, -0.45), 0.45);
+    const kx = -W / 2 - 0.3, kz = D - 0.6, gy = groundY(F, terrain, kx, kz);
+    for (let k = 0; k < 3; k++) B.box(kx, gy + 0.17 + k * 0.34, kz - (k === 2 ? 0.05 : 0), 0.36, 0.33, 0.5, k % 2 ? 0xd8b020 : 0xb8241c);
+    const bx = W / 2 + 0.35, bz = D - 0.8, by = groundY(F, terrain, bx, bz);
+    B.shape(new THREE.CylinderGeometry(0.25, 0.23, 0.9, 10), bx, by + 0.45, bz, 1, 1, 1, 0x8c8e90);
+    B.shape(new THREE.SphereGeometry(0.25, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2), bx, by + 0.9, bz, 1, 0.6, 1, 0x8c8e90);
+    colliders.addCircle(...F.toWorld(bx, bz), 0.28);
+    colliders.addCircle(...F.toWorld(kx, kz), 0.35);
   }
   // Terrasse mit Holzzaun, Tischen mit Karotuch, roten Stühlen und Sonnenschirm
   {
@@ -502,7 +506,11 @@ export function buildImbiss(pts, { terrain, chunkAt, colliders }) {
     let depth = 0;
     for (let d = 0.5; d <= 5; d += 0.5) {
       let hit = false;
-      for (let x = 0; x <= W / 2 + 2.5; x += 0.5) { const [wx, wz] = F.toWorld(x, -d); if (terrain.roadAt(wx, wz, 0.4) === terrain.roadAt(wx, wz, 0.4)) hit = true; }
+      for (let x = 0; x <= W / 2 + 2.5; x += 0.5) {
+        const [wx, wz] = F.toWorld(x, -d - 0.3);
+        if (terrain.roadAt(wx, wz, 0.4) === terrain.roadAt(wx, wz, 0.4)) hit = true;
+        if (terrain.walkAt) { const w = terrain.walkAt(wx, wz); if (w === w) hit = true; }     // nie auf den Gehweg
+      }
       if (hit) break;
       depth = d;
     }
@@ -510,41 +518,44 @@ export function buildImbiss(pts, { terrain, chunkAt, colliders }) {
     let side = false;
     if (depth < 2.6) { side = true; ox = W / 2 + 2.2; oz = D * 0.45; tw = 3.8; td = D * 0.9; }
     const x0 = ox - tw / 2, x1 = ox + tw / 2, z0 = oz - td / 2, z1 = oz + td / 2;
-    let lowG = 0;
-    for (const [x, z] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1], [ox, oz]]) lowG = Math.min(lowG, groundY(F, terrain, x, z));
-    B.box(ox, (lowG - 0.3) / 2 + 0.06, oz, tw, -lowG + 0.42, td, 0x9a958a);          // Boden mit Betonrand
-    B.box(ox, 0.13, oz, tw - 0.3, 0.02, td - 0.3, 0x8a7e6c);
-    walk.push([ox, oz, tw / 2, td / 2, 0.14]);
+    // Terrassenboden: Holzdielen direkt auf dem Boden (kein Podest)
+    (chunkAt(F.ox, F.oz).extra ||= []).push(drapeRect(terrain, F, x0, x1, z0, z1, (x) => (Math.floor(x * 6) % 2 ? 0x8a6a4a : 0x7e6044), { lift: 0.03, step: 0.25 }));
+    const gyAt = (x, z) => groundY(F, terrain, x, z) + 0.03;
     const tex = checkTex();
     const tables = side ? [[ox, oz - td * 0.22], [ox, oz + td * 0.25]] : [[ox - tw * 0.2, oz], [ox + tw * 0.25, oz]];
     for (const [tx, tz] of tables) {
-      B.box(tx, 0.5, tz, 0.08, 0.72, 0.08, 0x3a3a3a);
+      const ty = gyAt(tx, tz);
+      B.box(tx, ty + 0.38, tz, 0.08, 0.76, 0.08, 0x3a3a3a);
+      B.box(tx, ty + 0.01, tz, 0.5, 0.02, 0.5, 0x3a3a3a);
       const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.06, 0.95), lambert({ map: tex }));
-      cloth.position.set(tx, 0.88, tz); group.add(cloth);
+      cloth.position.set(tx, ty + 0.79, tz); group.add(cloth);
       for (const [cx, cz, ry] of [[-0.75, 0, Math.PI / 2], [0.75, 0, -Math.PI / 2]]) {
-        const sx = tx + cx, sz = tz + cz;
-        B.box(sx, 0.55, sz, 0.45, 0.05, 0.45, 0xb8241c, ry);
-        B.box(sx + (cx > 0 ? 0.22 : -0.22), 0.85, sz, 0.05, 0.6, 0.45, 0xb8241c);
-        for (const dx of [-0.18, 0.18]) for (const dz of [-0.18, 0.18]) B.box(sx + dx, 0.33, sz + dz, 0.03, 0.45, 0.03, 0x8a8a8a);
+        const sx = tx + cx, sz = tz + cz, sy = gyAt(sx, sz);
+        B.box(sx, sy + 0.45, sz, 0.45, 0.05, 0.45, 0xb8241c, ry);
+        B.box(sx + (cx > 0 ? 0.22 : -0.22), sy + 0.75, sz, 0.05, 0.6, 0.45, 0xb8241c);
+        for (const dx of [-0.18, 0.18]) for (const dz of [-0.18, 0.18]) B.box(sx + dx, sy + 0.215, sz + dz, 0.03, 0.43, 0.03, 0x8a8a8a);
       }
       colliders.addCircle(...F.toWorld(tx, tz), 0.55);
     }
     // Sonnenschirm (rot mit weissem Rand, erfundene Biermarke)
     const [px, pz] = side ? [ox + tw * 0.3, oz] : [x1 - 0.6, oz];
-    B.box(px, 1.35, pz, 0.05, 2.5, 0.05, 0xdddddd);
-    B.shape(new THREE.ConeGeometry(1.5, 0.55, 12), px, 2.65, pz, 1, 1, 1, 0xb8241c);
-    B.shape(new THREE.CylinderGeometry(1.5, 1.5, 0.18, 12, 1, true), px, 2.3, pz, 1, 1, 1, 0xf0ece0);
-    const lab = plane(group, boardTex('bräu', [{ text: 'MUOTA BRÄU', font: 'bold 80px Arial', color: '#b8241c' }], { bg: '#f0ece0', border: '#f0ece0', w: 512, h: 96 }), px, 2.3, pz - 1.52, 1.0, 0.18);
+    const py = gyAt(px, pz);
+    B.box(px, py + 1.25, pz, 0.05, 2.5, 0.05, 0xdddddd);
+    B.box(px, py + 0.05, pz, 0.45, 0.1, 0.45, 0x5a5a5a);
+    B.shape(new THREE.ConeGeometry(1.5, 0.55, 12), px, py + 2.55, pz, 1, 1, 1, 0xb8241c);
+    B.shape(new THREE.CylinderGeometry(1.5, 1.5, 0.18, 12, 1, true), px, py + 2.2, pz, 1, 1, 1, 0xf0ece0);
+    const lab = plane(group, boardTex('bräu', [{ text: 'MUOTA BRÄU', font: 'bold 80px Arial', color: '#b8241c' }], { bg: '#f0ece0', border: '#f0ece0', w: 512, h: 96 }), px, py + 2.2, pz - 1.52, 1.0, 0.18);
     lab.material.side = THREE.DoubleSide;
     // Holzzaun um die Terrasse
-    const post = (x, z) => B.box(x, 0.55, z, 0.08, 0.85, 0.08, 0x7a5a3a);
+    const post = (x, z) => { const y = gyAt(x, z); B.box(x, y + 0.45, z, 0.08, 0.9, 0.08, 0x7a5a3a); };
     const fenceRun = (xa, za, xb, zb) => {
       const L = Math.hypot(xb - xa, zb - za), n = Math.max(1, Math.round(L / 0.14));
       for (let k = 0; k <= n; k++) {
-        const t = k / n, x = xa + (xb - xa) * t, z = za + (zb - za) * t;
-        B.box(x, 0.48 + (k % 2) * 0.03, z, 0.07, 0.7 + (k % 3) * 0.04, 0.025, k % 2 ? 0x8a6a48 : 0x7e6040, Math.atan2(-(zb - za), xb - xa));
+        const t = k / n, x = xa + (xb - xa) * t, z = za + (zb - za) * t, y = gyAt(x, z), h = 0.7 + (k % 3) * 0.04;
+        B.box(x, y + h / 2, z, 0.07, h, 0.025, k % 2 ? 0x8a6a48 : 0x7e6040, Math.atan2(-(zb - za), xb - xa));
       }
-      B.shape(new THREE.BoxGeometry(L, 0.05, 0.04), (xa + xb) / 2, 0.66, (za + zb) / 2, 1, 1, 1, 0x6a4a2a, Math.atan2(-(zb - za), xb - xa));
+      const ya = gyAt(xa, za), yb = gyAt(xb, zb);
+      bar(B, [xa, ya + 0.6, za], [xb, yb + 0.6, zb], 0.05, 0x6a4a2a);
       post(xa, za); post(xb, zb);
       const [mx, mz] = F.toWorld((xa + xb) / 2, (za + zb) / 2), [ax, az] = F.toWorld(xa, za), [bx, bz] = F.toWorld(xb, zb);
       const ux = (bx - ax) / L, uz = (bz - az) / L;
@@ -553,8 +564,10 @@ export function buildImbiss(pts, { terrain, chunkAt, colliders }) {
     if (side) { fenceRun(x1, z0, x1, z1); fenceRun(x0 + 0.2, z0, x1, z0); }
     else { fenceRun(x0, z0, x1 - 1.4, z0); fenceRun(x1, z0, x1, z1); }
   }
+  // Vorplatz bis zum Gehweg
+  (chunkAt(F.ox, F.oz).extra ||= []).push(forecourt(terrain, F, -W / 2 - 1, W / 2 + 4.5, 8, paving(0x8a857c)));
   // Fallrohre, kleines Kamin
-  for (const s of [-1, 1]) B.box(s * (W / 2 - 0.08), H / 2, -0.12, 0.1, H, 0.1, 0x6a6a66);
+  for (const s of [-1, 1]) B.box(s * (W / 2 - 0.08), (H - 0.3) / 2, -0.12, 0.1, H - 0.3, 0.1, 0x6a6a66);
   B.box(W * 0.25, ridge - 0.1, D * 0.6, 0.45, 1.0, 0.45, 0xb0a596);
   finish(group, B, glow, F, chunkAt, colliders, walk, W, D, ridge + 0.5);
   const [dx, dz] = F.toWorld(wcx, -1.4);
