@@ -243,6 +243,13 @@ export function drawRoadNet(net, terrain, chunkAt, colliders, colors) {
           ok = ea !== ea && eb !== eb;
         }
         if (ok) ok = terrain.groundAt(mx, mz) - (h[i] + h[i + 1]) / 2 - lift <= 0.5;
+        // keine Gehwege, die knapp neben einer anderen, höher/tiefer liegenden Strasse enden (Stufe)
+        if (ok) {
+          for (const [px, pz, ph] of [[mx, mz, (h[i] + h[i + 1]) / 2], [ax + nx * (hw + 0.9) * sgn, az + nz * (hw + 0.9) * sgn, h[i]], [bx + nx * (hw + 0.9) * sgn, bz + nz * (hw + 0.9) * sgn, h[i + 1]]]) {
+            const o = net.roadAt(px + nx * 1.3 * sgn, pz + nz * 1.3 * sgn, 1.6);
+            if (o === o && Math.abs(o - ph) > 0.2) ok = false;
+          }
+        }
         walkOK[sgn][i] = ok;
       }
     }
@@ -305,6 +312,8 @@ export function drawRoadNet(net, terrain, chunkAt, colliders, colors) {
       } else {
         // Böschung/Strassenrand bis zum Gelände hinunter, damit die Strasse fest wirkt
         for (const [P, Q, sgn] of [[L0, L1, 1], [R0, R1, -1]]) {
+          // im Dorf liegt der feine Boden bündig an der Strasse: keine Böschung
+          if (terrain.fine && terrain.fine.inside(P[0], P[2]) && terrain.fine.inside(Q[0], Q[2])) continue;
           const gp = terrain.groundAt(P[0], P[2]), gq = terrain.groundAt(Q[0], Q[2]);
           const hp = P[1] - gp, hq = Q[1] - gq;
           if (hp < 0.12 && hq < 0.12) continue;
